@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Model weights (ultralytics auto-downloads into the CWD)
+*.pt
+*.onnx
+
+# Videos are too large for git; keep them in data/ (or anywhere, all video files are ignored).
+# Patterns are case-insensitive so phone/camera exports like .MP4/.MOV are caught too.
+data/
+runs/
+*.[mM][pP]4
+*.[mM]4[vV]
+*.[mM][oO][vV]
+*.[aA][vV][iI]
+*.[mM][kK][vV]
+*.[wW][eE][bB][mM]
+*.[mM][pP][gG]
+*.[mM][pP][eE][gG]
+*.[mM][tT][sS]
+
+.DS_Store
