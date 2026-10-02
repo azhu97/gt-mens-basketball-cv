@@ -18,25 +18,31 @@ def track(
     ] = Path("runs"),
     model: Annotated[str, typer.Option(help="Ultralytics weights name or path")] = "yolo11m.pt",
     device: Annotated[str | None, typer.Option(help="cuda:0 / mps / cpu (auto if omitted)")] = None,
-    tracker: Annotated[str, typer.Option(help="bytetrack.yaml or botsort.yaml")] = "bytetrack.yaml",
+    tracker: Annotated[
+        str | None,
+        typer.Option(help="Tracker YAML (default: bundled basketball BoT-SORT; or bytetrack.yaml)"),
+    ] = None,
     calibration: Annotated[
         Path | None, typer.Option(exists=True, help="Calibration JSON from `cvb calibrate`")
     ] = None,
     person_conf: float = 0.4,
     ball_conf: float = 0.1,
+    ball_imgsz: Annotated[int, typer.Option(help="Input size for the ball detector")] = 1280,
     csv: Annotated[bool, typer.Option(help="Also write tracks.csv")] = False,
     render: Annotated[bool, typer.Option(help="Write annotated.mp4")] = True,
 ) -> None:
     """Detect and track players and ball, assign teams, and export results."""
     from cv_basketball.device import select_device
     from cv_basketball.pipeline import PipelineConfig, run
+    from cv_basketball.tracking import DEFAULT_TRACKER
 
     cfg = PipelineConfig(
         model=model,
         device=select_device(device),
-        tracker=tracker,
+        tracker=tracker or DEFAULT_TRACKER,
         person_conf=person_conf,
         ball_conf=ball_conf,
+        ball_imgsz=ball_imgsz,
         calibration=calibration,
         export_csv=csv,
         render=render,

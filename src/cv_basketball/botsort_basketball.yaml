@@ -1,0 +1,17 @@
+# BoT-SORT tuned for broadcast basketball: panning camera, frequent player occlusion.
+# Differences from ultralytics' botsort.yaml are marked.
+
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.4 # default 0.25; fewer spurious tracks from crowd/bench
+track_buffer: 90 # default 30; ~3 s at 30 fps so occluded players keep their ID
+match_thresh: 0.8
+fuse_score: True
+
+gmc_method: sparseOptFlow # camera-motion compensation for the panning broadcast camera
+
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: True # default False; "auto" reuses detector features, so no extra model
+model: auto

@@ -1,7 +1,8 @@
 """End-to-end offline pipeline.
 
-Pass 1 streams the video through YOLO + tracker, recording boxes and jersey colors
-(no frames kept in memory). Post-processing (ball cleanup, team clustering, court
+Pass 1 streams the video through YOLO (tracker for players, plain detection for the
+ball), recording boxes and jersey colors (no frames kept in memory). Post-processing
+(ball cleanup, team clustering, court
 projection) then works purely on the tracks DataFrame. Pass 2 re-reads the video to
 render the annotated output.
 """
@@ -17,16 +18,17 @@ from cv_basketball.annotate import render_video
 from cv_basketball.ball import interpolate_ball, select_ball
 from cv_basketball.homography import Calibration, add_court_coords
 from cv_basketball.teams import UNKNOWN_TEAM, assign_teams, torso_color_feature
-from cv_basketball.tracking import PERSON, SPORTS_BALL, track_video
+from cv_basketball.tracking import DEFAULT_TRACKER, PERSON, SPORTS_BALL, track_video
 
 
 @dataclass
 class PipelineConfig:
     model: str = "yolo11m.pt"
     device: str = "cpu"
-    tracker: str = "bytetrack.yaml"
+    tracker: str = DEFAULT_TRACKER
     person_conf: float = 0.4
     ball_conf: float = 0.1
+    ball_imgsz: int = 1280
     ball_max_gap: int = 10
     calibration: Path | None = None
     export_csv: bool = False
@@ -36,9 +38,14 @@ class PipelineConfig:
 def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
     """Pass 1: raw per-detection rows (see ``schema.DETECTION_COLUMNS``)."""
     rows: list[dict[str, Any]] = []
-    detector_floor = min(cfg.person_conf, cfg.ball_conf)
     for fd in track_video(
-        video, model_name=cfg.model, device=cfg.device, tracker=cfg.tracker, conf=detector_floor
+        video,
+        model_name=cfg.model,
+        device=cfg.device,
+        tracker=cfg.tracker,
+        person_conf=cfg.person_conf,
+        ball_conf=cfg.ball_conf,
+        ball_imgsz=cfg.ball_imgsz,
     ):
         for box, tid, cls, conf in zip(fd.xyxy, fd.track_ids, fd.classes, fd.confs, strict=True):
             base = {

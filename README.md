@@ -1,6 +1,6 @@
 # cv-basketball
 
-Offline basketball video analysis. It uses YOLO for detection with the ultralytics built-in trackers to follow players and the ball, clusters players into teams by jersey color, and maps positions onto a top-down court using a manual homography calibration.
+Offline basketball video analysis. It uses YOLO for detection with the ultralytics' BoT-SORT tracker to follow players, a separate high-resolution pass to detect the ball, clusters players into teams by jersey color, and maps positions onto a top-down court using a manual homography calibration.
 
 ## Setup
 
@@ -28,6 +28,6 @@ Outputs go to `runs/<video stem>/`:
 
 ## Known limitations
 
-- COCO `sports ball` detection is weak on small, fast basketballs. `model.track` also drops detections the tracker hasn't confirmed, so the ball can disappear for stretches. Short gaps are filled by interpolation.
+- The pretrained COCO `sports ball` class has many false positives on broadcast footage (e.g. pom-poms in the crowd). The highest-confidence detection per frame is kept, and short gaps are filled by interpolation.
 - Referees are clustered into one of the two teams.
 - Calibration assumes a static camera.

@@ -23,7 +23,7 @@ uv run cvb track VIDEO [--calibration X.json] [--device mps] [--csv] [--no-rende
 
 This is an offline pipeline (`pipeline.run`) that makes **two passes over the video** and uses **one DataFrame as the contract between stages**:
 
-1. **Pass 1, `detect_and_track`**: `tracking.track_video` streams `model.track(stream=True, persist=True)` results frame by frame. For each player box it samples the jersey color (`teams.torso_color_feature`, mean LAB of the upper-torso crop) right away, so frames never need to be kept in memory.
+1. **Pass 1, `detect_and_track`**: `tracking.track_video` reads frames with OpenCV and runs two YOLO instances on each one: `model.track(persist=True)` for players (bundled `botsort_basketball.yaml` by default) and a plain `predict` at `ball_imgsz=1280` for the ball. For each player box it samples the jersey color (`teams.torso_color_feature`, mean LAB of the upper-torso crop) right away, so frames never need to be kept in memory.
 2. **Post-process, `postprocess`**: this step works only on the DataFrame. Ball rows go through `select_ball` (the top-confidence detection per frame) and then `interpolate_ball` (linear fill of short gaps, marked `interpolated=True`). Player rows go through `assign_teams` (KMeans on color, then a majority vote per `track_id`, so a track never switches teams). If a calibration is given, `homography.add_court_coords` projects the bottom-centre of each box into court metres.
 3. **Pass 2, `annotate.render_video`**: re-reads the video with OpenCV and draws from the DataFrame.
 
@@ -36,7 +36,8 @@ Other conventions:
 
 ## Gotchas
 
-- `model.track` only returns boxes the tracker has confirmed. Low-confidence or short-lived ball detections are silently dropped, which is why the ball has gaps. Fixing this properly means running `predict` for the ball separately from tracking for players.
+- The ball uses `predict`, not `track`, because `model.track` only returns boxes the tracker has confirmed and silently drops short-lived ball detections. It runs at imgsz 1280 because at 640 a 1080p ball is about 10px. It needs its own `YOLO` instance: calling `predict` on the tracking model would run its tracker callbacks.
+- COCO `sports ball` gives many false positives on broadcast footage (crowd, pom-poms), and raising `ball_conf` doesn't separate them from the real ball.
 - Ultralytics trackers need `lap`. If it's missing, ultralytics tries to `pip install` it at runtime, and that fails in a uv venv. It's declared in `pyproject.toml`, so keep it there.
 - mypy treats `ultralytics` as untyped (`follow_imports = "skip"`) because its partial hints (e.g. `Boxes | None`) are noisy. cv2 *is* typed, so wrap cv2 return values in `np.asarray(..., dtype=...)` to satisfy the `NDArray` annotations.
 - Team assignment always uses 2 clusters, so referees get forced into a team.
