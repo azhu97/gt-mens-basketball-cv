@@ -19,6 +19,30 @@ def test_cli_help() -> None:
     assert "calibrate" in result.stdout
 
 
+def test_referees_get_no_team() -> None:
+    rows = [
+        {
+            s.FRAME: f,
+            s.TRACK_ID: tid,
+            s.LABEL: label,
+            s.CONF: 0.9,
+            "x1": 0.0,
+            "y1": 0.0,
+            "x2": 10.0,
+            "y2": 30.0,
+            "torso_l": lum,
+            "torso_a": 128.0,
+            "torso_b": 128.0,
+        }
+        for f in range(3)
+        for tid, label, lum in [(1, s.PLAYER, 30.0), (2, s.PLAYER, 220.0), (3, s.REFEREE, 120.0)]
+    ]
+    tracks = postprocess(pd.DataFrame(rows, columns=s.DETECTION_COLUMNS), PipelineConfig(), None)
+    teams = tracks.groupby(s.TRACK_ID)[s.TEAM].first()
+    assert teams[3] == -1
+    assert {teams[1], teams[2]} == {0, 1}
+
+
 def test_postprocess_and_render_without_model(synthetic_video: Path, tmp_path: Path) -> None:
     raw = pd.DataFrame(
         [

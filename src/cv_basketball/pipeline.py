@@ -18,7 +18,7 @@ from cv_basketball.annotate import render_video
 from cv_basketball.ball import interpolate_ball, select_ball
 from cv_basketball.homography import Calibration, add_court_coords
 from cv_basketball.teams import UNKNOWN_TEAM, assign_teams, torso_color_feature
-from cv_basketball.tracking import DEFAULT_TRACKER, PERSON, SPORTS_BALL, track_video
+from cv_basketball.tracking import DEFAULT_TRACKER, track_video
 
 
 @dataclass
@@ -47,19 +47,19 @@ def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
         ball_conf=cfg.ball_conf,
         ball_imgsz=cfg.ball_imgsz,
     ):
-        for box, tid, cls, conf in zip(fd.xyxy, fd.track_ids, fd.classes, fd.confs, strict=True):
+        for box, tid, label, conf in zip(fd.xyxy, fd.track_ids, fd.labels, fd.confs, strict=True):
             base = {
                 s.FRAME: fd.frame_idx,
                 s.CONF: float(conf),
                 **dict(zip(s.BOX, map(float, box), strict=True)),
             }
-            if cls == PERSON and conf >= cfg.person_conf:
+            if label in (s.PLAYER, s.REFEREE) and conf >= cfg.person_conf:
                 color = torso_color_feature(fd.image, box)
                 rows.append(
-                    {**base, s.TRACK_ID: int(tid), s.LABEL: s.PLAYER}
+                    {**base, s.TRACK_ID: int(tid), s.LABEL: label}
                     | dict(zip(s.COLOR_FEATURES, map(float, color), strict=True))
                 )
-            elif cls == SPORTS_BALL and conf >= cfg.ball_conf:
+            elif label == s.BALL and conf >= cfg.ball_conf:
                 rows.append({**base, s.TRACK_ID: -1, s.LABEL: s.BALL})
     return pd.DataFrame(rows, columns=s.DETECTION_COLUMNS)
 
@@ -71,11 +71,15 @@ def postprocess(
     players[s.TEAM] = assign_teams(players)
     players[s.INTERPOLATED] = False
 
+    referees = raw[raw[s.LABEL] == s.REFEREE].copy()
+    referees[s.TEAM] = UNKNOWN_TEAM
+    referees[s.INTERPOLATED] = False
+
     balls = interpolate_ball(select_ball(raw[raw[s.LABEL] == s.BALL]), cfg.ball_max_gap)
     balls[s.TEAM] = UNKNOWN_TEAM
 
     tracks = (
-        pd.concat([players, balls], ignore_index=True)
+        pd.concat([players, referees, balls], ignore_index=True)
         .sort_values([s.FRAME, s.LABEL, s.TRACK_ID])
         .reset_index(drop=True)
     )

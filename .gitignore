@@ -27,3 +27,6 @@ runs/
 *.[mM][tT][sS]
 
 .DS_Store
+
+# Secrets (API keys); load with `uv run --env-file .env ...`
+.env

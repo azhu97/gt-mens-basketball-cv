@@ -5,15 +5,16 @@ Every stage reads/writes this single DataFrame; it is also the exported file for
 
 FRAME = "frame"
 TRACK_ID = "track_id"  # tracker ID for players; -1 for the ball (single object, ID unused)
-LABEL = "label"  # "player" | "ball"
+LABEL = "label"  # "player" | "referee" | "ball"
 CONF = "conf"  # NaN for interpolated ball rows
 BOX = ["x1", "y1", "x2", "y2"]  # pixel coords
-COLOR_FEATURES = ["torso_l", "torso_a", "torso_b"]  # mean LAB jersey color (players only)
-TEAM = "team"  # 0/1 for players, -1 for unknown / ball
+COLOR_FEATURES = ["torso_l", "torso_a", "torso_b"]  # mean LAB jersey color (people only)
+TEAM = "team"  # 0/1 for players, -1 for unknown / referee / ball
 INTERPOLATED = "interpolated"  # True for ball rows filled between detections
 COURT = ["court_x", "court_y"]  # metres on the top-down court; only with a calibration
 
 PLAYER = "player"
+REFEREE = "referee"  # only from fine-tuned weights with a referee class
 BALL = "ball"
 
 DETECTION_COLUMNS = [FRAME, TRACK_ID, LABEL, CONF, *BOX, *COLOR_FEATURES]

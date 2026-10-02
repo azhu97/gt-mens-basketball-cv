@@ -16,7 +16,11 @@ uv run mypy                               # strict; checks src/ and tests/
 uv run pre-commit run --all-files         # ruff + ruff-format + mypy
 
 uv run cvb calibrate VIDEO --court nba    # interactive OpenCV window; writes VIDEO.calibration.json
-uv run cvb track VIDEO [--calibration X.json] [--device mps] [--csv] [--no-render]
+uv run cvb track VIDEO [--calibration X.json] [--device mps] [--csv] [--no-render] [--model best.pt]
+
+uv run --env-file .env cvb dataset download WORKSPACE/PROJECT/VERSION   # key in .env; -> data/raw/PROJECT
+uv run cvb dataset prepare data/raw/PROJECT             # remap classes -> data/datasets/PROJECT/data.yaml
+uv run cvb train data/datasets/PROJECT/data.yaml        # -> runs/train/basketball*/weights/best.pt
 ```
 
 ## Architecture
@@ -30,7 +34,8 @@ This is an offline pipeline (`pipeline.run`) that makes **two passes over the vi
 `schema.py` defines every column name in that DataFrame, and the table is also the exported `tracks.parquet`/`.csv` format. Use the `schema` constants rather than string literals. When you add a stage, add its columns there.
 
 Other conventions:
-- Detection uses pretrained COCO weights: class `PERSON=0` becomes players and `SPORTS_BALL=32` becomes the ball. The ball gets `track_id=-1` because it's treated as a single object and tracker IDs are ignored.
+- Model classes are mapped to labels **by class name** (`tracking.label_map`), so the same pipeline runs pretrained COCO weights (`person`, `sports ball`) and fine-tuned weights (`player`, `referee`, `ball`; see `dataset.TARGET_CLASSES`). Referees are tracked but get `team=-1` and are left out of team clustering. The ball gets `track_id=-1` because it's treated as a single object.
+- Fine-tuning: `dataset.remap_dataset` collapses a YOLO-format export's fine-grained classes (`player-jump-shot`, `Ref`, `ball-in-basket`...) into those three by name (`target_label`) and drops the rest (rim, scoreboard...). Training defaults to imgsz 1280 for the ball, and the weights remember that size, so `track` runs players at 1280 with them too.
 - The court coordinate system is in metres, with the origin at a baseline/sideline corner and x running along the length (`court.py`). A calibration JSON stores pairs of image pixels and court metres plus a court spec name (`nba`/`fiba`), and assumes a **static camera**.
 - `device.select_device` picks CUDA, then MPS, then CPU. `torch` and `ultralytics` are imported lazily inside functions to keep the CLI and tests fast. Keep it that way.
 
@@ -40,5 +45,5 @@ Other conventions:
 - COCO `sports ball` gives many false positives on broadcast footage (crowd, pom-poms), and raising `ball_conf` doesn't separate them from the real ball.
 - Ultralytics trackers need `lap`. If it's missing, ultralytics tries to `pip install` it at runtime, and that fails in a uv venv. It's declared in `pyproject.toml`, so keep it there.
 - mypy treats `ultralytics` as untyped (`follow_imports = "skip"`) because its partial hints (e.g. `Boxes | None`) are noisy. cv2 *is* typed, so wrap cv2 return values in `np.asarray(..., dtype=...)` to satisfy the `NDArray` annotations.
-- Team assignment always uses 2 clusters, so referees get forced into a team.
-- Weights (`*.pt`), videos, `data/` and `runs/` are gitignored. Ultralytics downloads weights into the current working directory.
+- Team assignment always uses 2 clusters. With COCO weights there's no referee class, so refs and coaches get forced into a team. Fine-tuned weights with a `referee` class fix refs, but not coaches or bench players.
+- Weights (`*.pt`), videos, `data/`, `runs/` and `.env` (holds `ROBOFLOW_API_KEY`) are gitignored. Never hardcode or commit the key. Ultralytics downloads weights into the current working directory.

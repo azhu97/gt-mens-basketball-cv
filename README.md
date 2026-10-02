@@ -26,8 +26,20 @@ Outputs go to `runs/<video stem>/`:
 - `tracks.parquet` (and `tracks.csv` with `--csv`): one row per detection per frame. The columns are defined in `src/cv_basketball/schema.py`.
 - `annotated.mp4`: team-colored player boxes with track IDs, the ball trail, and a court minimap when a calibration is given.
 
+## Fine-tuning
+
+The pretrained COCO weights have no referee class and a weak ball class. To fine-tune on a public basketball dataset from [Roboflow Universe](https://universe.roboflow.com) (needs a free API key):
+
+```bash
+echo 'ROBOFLOW_API_KEY=...' > .env                      # gitignored
+uv run --env-file .env cvb dataset download WORKSPACE/PROJECT/VERSION   # YOLO-format export into data/raw/PROJECT
+uv run cvb dataset prepare data/raw/PROJECT             # classes -> player / referee / ball
+uv run cvb train data/datasets/PROJECT/data.yaml        # prints the path to best.pt
+uv run cvb track game.mp4 --model runs/train/basketball/weights/best.pt
+```
+
 ## Known limitations
 
 - The pretrained COCO `sports ball` class has many false positives on broadcast footage (e.g. pom-poms in the crowd). The highest-confidence detection per frame is kept, and short gaps are filled by interpolation.
-- Referees are clustered into one of the two teams.
+- With COCO weights, referees are clustered into one of the two teams. Fine-tuned weights with a referee class fix this.
 - Calibration assumes a static camera.
