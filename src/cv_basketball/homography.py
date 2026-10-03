@@ -115,3 +115,38 @@ def add_court_coords(
                 rows = frames == frame
                 court_xy[rows] = project(image_to_court[int(frame)], ground[rows])
     return tracks.assign(**{s.COURT[0]: court_xy[:, 0], s.COURT[1]: court_xy[:, 1]})
+
+
+def off_court_share(
+    keyframe: Calibration, people: pd.DataFrame, margin: float = 1.5
+) -> float | None:
+    """Share of people standing on the floor in ``keyframe``'s frame that it maps off court.
+
+    ``people`` are pass-1 rows; only those with their feet on the floor
+    (``FLOOR_DIST > 0``) count, so fans in the stands don't. ``None`` if fewer than 4.
+    A correct keyframe puts nearly everyone within ``margin`` metres of the court;
+    a mis-clicked one (say, half-court lines clicked as the full court's corners)
+    throws many of them metres outside it.
+    """
+    rows = people[(people[s.FRAME] == keyframe.frame) & (people[s.FLOOR_DIST] > 0)]
+    if len(rows) < 4:
+        return None
+    x, y = project(keyframe.homography(), ground_points(rows)).T
+    spec = keyframe.spec
+    outside = (x < -margin) | (x > spec.length + margin) | (y < -margin) | (y > spec.width + margin)
+    return float(outside.mean())
+
+
+def reject_bad_keyframes(
+    keyframes: list[Calibration], people: pd.DataFrame, max_off_court: float = 0.3
+) -> tuple[list[Calibration], list[Calibration]]:
+    """Split ``keyframes`` into (kept, rejected) by ``off_court_share``.
+
+    A keyframe that maps more than ``max_off_court`` of the floor's people off the court
+    is rejected, as long as another keyframe is kept to carry through the camera motion.
+    """
+    shares = [off_court_share(k, people) for k in keyframes]
+    good = [k for k, sh in zip(keyframes, shares, strict=True) if sh is None or sh <= max_off_court]
+    if not good:
+        return keyframes, []
+    return good, [k for k in keyframes if k not in good]

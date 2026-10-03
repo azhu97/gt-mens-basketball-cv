@@ -11,6 +11,7 @@ from cv_basketball.homography import (
     add_court_coords,
     load_calibrations,
     project,
+    reject_bad_keyframes,
     save_calibrations,
 )
 
@@ -74,3 +75,31 @@ def test_add_court_coords_per_frame() -> None:
     out = add_court_coords(tracks, {0: H, 1: 2 * np.eye(3) @ H})  # scaled H is the same map
     assert out[s.COURT].to_numpy() == pytest.approx(np.array([[5.0, 3.0], [5.0, 3.0]]), abs=1e-6)
     assert np.isnan(add_court_coords(tracks, {0: H})[s.COURT[0]].iloc[1])
+
+
+def test_mis_clicked_keyframe_is_rejected() -> None:
+    # 100 px per metre: pixel (100x, 100y) is court (x, y)
+    good = Calibration(
+        "nba",
+        [(0, 0), (2865, 0), (0, 1524), (2865, 1524)],
+        [(0, 0), (28.65, 0), (0, 15.24), (28.65, 15.24)],
+        frame=0,
+    )
+    # the same clicks as if they were a quarter of the court: everything lands 4x out
+    bad = Calibration(
+        "nba",
+        [(0, 0), (716, 0), (0, 381), (716, 381)],
+        [(0, 0), (28.65, 0), (0, 15.24), (28.65, 15.24)],
+        frame=1,
+    )
+    feet = [(500.0, 300.0), (1500.0, 800.0), (2000.0, 1200.0), (1000.0, 500.0)]
+    people = pd.DataFrame(
+        [
+            {s.FRAME: f, "x1": x - 20, "y1": y - 150, "x2": x + 20, "y2": y, s.FLOOR_DIST: 1.0}
+            for f in (0, 1)
+            for x, y in feet
+        ]
+    )
+    kept, rejected = reject_bad_keyframes([good, bad], people)
+    assert kept == [good]
+    assert rejected == [bad]

@@ -9,6 +9,7 @@ hand-calibrated keyframes to every frame for court coordinates. Pass 2 re-reads 
 video to render the annotated output.
 """
 
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,7 +24,12 @@ from cv_basketball.annotate import render_court_video, render_video
 from cv_basketball.ball import interpolate_ball, track_ball
 from cv_basketball.camera import court_homographies, frame_motion
 from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
-from cv_basketball.homography import Calibration, add_court_coords, load_calibrations
+from cv_basketball.homography import (
+    Calibration,
+    add_court_coords,
+    load_calibrations,
+    reject_bad_keyframes,
+)
 from cv_basketball.labels import vote_person_labels
 from cv_basketball.smoothing import drop_blips, smooth_teams
 from cv_basketball.swaps import max_iou
@@ -161,6 +167,14 @@ def run(video: Path, out_dir: Path, cfg: PipelineConfig) -> pd.DataFrame:
 
     raw, motions = detect_and_track(video, cfg)
     np.save(out_dir / "camera_motion.npy", motions)
+    if keyframes:
+        keyframes, rejected = reject_bad_keyframes(keyframes, raw)
+        for k in rejected:
+            warnings.warn(
+                f"Ignoring the calibration keyframe at frame {k.frame}: it maps most players "
+                f"off the court. Re-click it with `cvb calibrate {video} --frame {k.frame}`.",
+                stacklevel=1,
+            )
     homographies = image_to_court(keyframes, motions) if keyframes else None
     tracks = postprocess(raw, cfg, homographies)
     tracks.to_parquet(out_dir / "tracks.parquet", index=False)
