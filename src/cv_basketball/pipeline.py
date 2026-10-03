@@ -31,6 +31,7 @@ from cv_basketball.homography import (
     reject_bad_keyframes,
 )
 from cv_basketball.labels import vote_person_labels
+from cv_basketball.paths import smooth_paths
 from cv_basketball.smoothing import drop_blips, smooth_teams
 from cv_basketball.swaps import max_iou
 from cv_basketball.teams import (
@@ -58,6 +59,9 @@ class PipelineConfig:
     render: bool = True
     separate_court: bool = False  # court view in its own court.mp4, not an inset
     teams: TeamParams = field(default_factory=TeamParams)
+    # court-path smoothing windows in frames (see paths.py); 1 turns a filter off
+    path_median: int = 5
+    path_window: int = 15
 
 
 def detect_and_track(video: Path, cfg: PipelineConfig) -> tuple[pd.DataFrame, NDArray[np.float64]]:
@@ -153,6 +157,7 @@ def postprocess(
     )
     if homographies is not None:
         tracks = add_court_coords(tracks, dict(enumerate(homographies)))
+        tracks = smooth_paths(tracks, cfg.path_median, cfg.path_window)
     return tracks
 
 
