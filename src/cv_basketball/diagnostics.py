@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import linear_sum_assignment
 
 from cv_basketball import schema as s
 from cv_basketball.swaps import pairwise_iou
@@ -23,6 +24,7 @@ TEAMS = (0, 1)
 @dataclass
 class FlipReport:
     tracks: int  # player tracks in the output
+    dot_flips: int  # a box changes color (incl. to/from no team) from one frame to the next
     visible_flips: int  # a track hands over to one of the other team in the same spot
     tracker_flips: int  # team changes along the tracker's own IDs
     tracker_flips_in_overlap: int  # ... with the box overlapping another nearby
@@ -39,6 +41,28 @@ class FlipReport:
 def _majority(votes: "pd.Series[int]") -> int:
     known = votes[votes.isin(TEAMS)]
     return int(known.mode().iloc[0]) if len(known) else -1
+
+
+def dot_flips(players: pd.DataFrame, min_iou: float = 0.3) -> int:
+    """Times a player's box changes team color between consecutive frames.
+
+    Boxes are matched frame to frame by IoU (best one-to-one assignment), whatever their
+    track IDs, so this counts what a viewer sees: a dot changing color, including going
+    to or from grey (no team).
+    """
+    flips = 0
+    prev: pd.DataFrame | None = None
+    for _, cur in players.groupby(s.FRAME):
+        if prev is not None and int(prev[s.FRAME].iloc[0]) == int(cur[s.FRAME].iloc[0]) - 1:
+            boxes = np.vstack([prev[s.BOX], cur[s.BOX]]).astype(np.float64)
+            iou = pairwise_iou(boxes)[: len(prev), len(prev) :]
+            rows, cols = linear_sum_assignment(-iou)
+            matched = iou[rows, cols] >= min_iou
+            before = prev[s.TEAM].to_numpy()[rows[matched]]
+            after = cur[s.TEAM].to_numpy()[cols[matched]]
+            flips += int((before != after).sum())
+        prev = cur
+    return flips
 
 
 def flip_report(
@@ -86,6 +110,7 @@ def flip_report(
     sizes = sizes.reindex(index=range(n_frames), columns=list(TEAMS), fill_value=0)
     return FlipReport(
         tracks=int(players[s.TRACK_ID].nunique()),
+        dot_flips=dot_flips(players),
         visible_flips=visible,
         tracker_flips=tracker_flips,
         tracker_flips_in_overlap=in_overlap,

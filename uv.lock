@@ -254,6 +254,7 @@ dependencies = [
     { name = "pyarrow" },
     { name = "pyyaml" },
     { name = "scikit-learn" },
+    { name = "scipy" },
     { name = "typer" },
     { name = "ultralytics" },
 ]
@@ -277,6 +278,7 @@ requires-dist = [
     { name = "pyarrow", specifier = ">=17" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "scipy", specifier = ">=1.18.1" },
     { name = "typer", specifier = ">=0.12" },
     { name = "ultralytics", specifier = ">=8.3" },
 ]

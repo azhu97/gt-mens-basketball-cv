@@ -41,6 +41,11 @@ class TeamParams:
     split_min_run: int = 30
     # A track needs this many clean votes for a team; fewer and its team is unknown.
     min_votes: int = 3
+    # Noise filter (see smoothing.py): a piece of a tracker ID with the other team than
+    # the pieces on both sides takes theirs if it has at most this many rows ...
+    max_flip_rows: int = 45
+    # ... and tracks with no team and fewer rows than this are dropped.
+    min_unknown_rows: int = 10
 
 
 def torso_boxes(xyxy: NDArray[np.float64]) -> NDArray[np.float64]:

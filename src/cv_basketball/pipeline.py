@@ -25,6 +25,7 @@ from cv_basketball.camera import court_homographies, frame_motion
 from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
 from cv_basketball.homography import Calibration, add_court_coords, load_calibrations
 from cv_basketball.labels import vote_person_labels
+from cv_basketball.smoothing import drop_blips, smooth_teams
 from cv_basketball.swaps import max_iou
 from cv_basketball.teams import (
     UNKNOWN_TEAM,
@@ -127,6 +128,8 @@ def postprocess(
     players[[s.TRACK_ID, s.TEAM, s.TEAM_VOTE]] = assign_teams(
         players, next_track_id, occluded, referees=referees if len(referees) else None, params=tp
     )
+    players[s.TEAM] = smooth_teams(players, tp.max_flip_rows)
+    players = players[drop_blips(players, tp.min_unknown_rows)]
     players[s.INTERPOLATED] = False
 
     referees[s.TEAM] = UNKNOWN_TEAM
