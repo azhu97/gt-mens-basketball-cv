@@ -39,6 +39,8 @@ class TeamParams:
     # and a track is cut only where the change lasts this many rows.
     split_window: int = 15
     split_min_run: int = 30
+    # A track needs this many clean votes for a team; fewer and its team is unknown.
+    min_votes: int = 3
 
 
 def torso_boxes(xyxy: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -158,16 +160,20 @@ def cluster_jerseys(
 
 
 def vote_teams(
-    track_ids: "pd.Series[int]", clusters: "pd.Series[int]", n_teams: int = 2
+    track_ids: "pd.Series[int]", clusters: "pd.Series[int]", n_teams: int = 2, min_votes: int = 1
 ) -> "pd.Series[int]":
     """Majority-vote ``clusters`` within each track; rows without a track ID stay unknown.
 
-    A track that votes for a cluster that is not a team (``>= n_teams``) is unknown too.
+    A track that votes for a cluster that is not a team (``>= n_teams``), or has fewer
+    than ``min_votes`` votes, is unknown too.
     """
     team = pd.Series(UNKNOWN_TEAM, index=track_ids.index, dtype="int64")
     known = clusters != UNKNOWN_TEAM
-    per_track = clusters[known].groupby(track_ids[known]).agg(lambda v: int(v.mode().iloc[0]))
-    per_track = per_track.where(per_track < n_teams, UNKNOWN_TEAM)
+    by_track = clusters[known].groupby(track_ids[known])
+    per_track = by_track.agg(lambda v: int(v.mode().iloc[0]))
+    per_track = per_track.where(
+        (per_track < n_teams) & (by_track.size() >= min_votes), UNKNOWN_TEAM
+    )
     tracked = track_ids >= 0
     team.loc[tracked] = track_ids[tracked].map(per_track).fillna(UNKNOWN_TEAM).astype("int64")
     return team
@@ -211,5 +217,5 @@ def assign_teams(
     track_ids = split_on_change(
         repaired, clusters, next_track_id, n_values, params.split_window, params.split_min_run
     )
-    team = vote_teams(track_ids, clusters, n_teams)
+    team = vote_teams(track_ids, clusters, n_teams, params.min_votes)
     return pd.DataFrame({s.TRACK_ID: track_ids, s.TEAM: team, s.TEAM_VOTE: clusters})

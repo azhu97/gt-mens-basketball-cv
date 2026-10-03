@@ -136,3 +136,16 @@ def test_player_dressed_like_the_referees_gets_no_team() -> None:
     team = out.groupby(s.TRACK_ID)[s.TEAM].first()
     assert team[3] == UNKNOWN_TEAM
     assert UNKNOWN_TEAM != team[1] != team[2] != UNKNOWN_TEAM
+
+
+def test_track_with_too_few_clean_votes_gets_no_team() -> None:
+    # Track 3's torso is covered in all but 2 of its 50 rows.
+    players = pd.DataFrame(
+        _player_rows(1, RED, 50) + _player_rows(2, BLUE, 50) + _player_rows(3, RED, 50)
+    )
+    occluded = (players[s.TRACK_ID] == 3) & (players[s.FRAME] >= 2)
+
+    out = assign_teams(players, next_track_id=4, occluded=occluded)
+    team = out.groupby(s.TRACK_ID)[s.TEAM].first()
+    assert team[3] == UNKNOWN_TEAM
+    assert UNKNOWN_TEAM != team[1] != team[2] != UNKNOWN_TEAM
