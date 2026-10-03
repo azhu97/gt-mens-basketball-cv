@@ -150,3 +150,34 @@ def reject_bad_keyframes(
     if not good:
         return keyframes, []
     return good, [k for k in keyframes if k not in good]
+
+
+def drifting_frames(
+    tracks: pd.DataFrame,
+    spec: CourtSpec,
+    margin: float = 1.5,
+    max_off_court: float = 0.15,
+    min_frames: int = 15,
+) -> list[int]:
+    """Frames worth adding a calibration keyframe at, where the court mapping has drifted.
+
+    Camera motion is measured frame to frame, so its small errors add up far from a
+    keyframe and players start landing off the court. For each stretch of at least
+    ``min_frames`` frames where over ``max_off_court`` of the people are more than
+    ``margin`` metres off court, returns its worst frame.
+    """
+    people = tracks[(tracks[s.LABEL] != s.BALL) & tracks[s.COURT[0]].notna()]
+    if people.empty:
+        return []
+    x, y = people[s.COURT[0]], people[s.COURT[1]]
+    off = (x < -margin) | (x > spec.length + margin) | (y < -margin) | (y > spec.width + margin)
+    # smoothed over min_frames, so a brief dip doesn't split one drifting stretch in two
+    per_frame = off.groupby(people[s.FRAME]).mean()
+    share = per_frame.rolling(min_frames, center=True, min_periods=1).mean()
+    bad = share > max_off_court
+    runs = (bad != bad.shift()).cumsum()
+    worst = []
+    for _, run in share[bad].groupby(runs[bad]):
+        if len(run) >= min_frames:
+            worst.append(int(run.index.to_numpy()[np.argmax(run.to_numpy())]))
+    return worst

@@ -28,6 +28,7 @@ from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
 from cv_basketball.homography import (
     Calibration,
     add_court_coords,
+    drifting_frames,
     load_calibrations,
     reject_bad_keyframes,
 )
@@ -185,6 +186,13 @@ def run(video: Path, out_dir: Path, cfg: PipelineConfig) -> pd.DataFrame:
             )
     homographies = image_to_court(keyframes, motions) if keyframes else None
     tracks = postprocess(raw, cfg, homographies)
+    if keyframes:
+        for frame in drifting_frames(tracks, keyframes[0].spec):
+            warnings.warn(
+                f"The court mapping drifts around frame {frame} (players land off the "
+                f"court); add a keyframe there: `cvb calibrate {video} --frame {frame}`.",
+                stacklevel=1,
+            )
     tracks.to_parquet(out_dir / "tracks.parquet", index=False)
     if cfg.export_csv:
         tracks.to_csv(out_dir / "tracks.csv", index=False)

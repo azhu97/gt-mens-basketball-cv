@@ -9,6 +9,7 @@ from cv_basketball.court import NBA
 from cv_basketball.homography import (
     Calibration,
     add_court_coords,
+    drifting_frames,
     load_calibrations,
     project,
     reject_bad_keyframes,
@@ -103,3 +104,13 @@ def test_mis_clicked_keyframe_is_rejected() -> None:
     kept, rejected = reject_bad_keyframes([good, bad], people)
     assert kept == [good]
     assert rejected == [bad]
+
+
+def test_drifting_frames_points_at_the_worst_frame_of_a_drifting_stretch() -> None:
+    # 4 people per frame; from frame 50 on, two of them are 5 m past the baseline
+    rows = []
+    for f in range(100):
+        for i in range(4):
+            x = NBA.length + 5 if (f >= 50 and i < 2) else 10.0
+            rows.append({s.FRAME: f, s.LABEL: s.PLAYER, s.COURT[0]: x, s.COURT[1]: 5.0})
+    assert drifting_frames(pd.DataFrame(rows), NBA) == [50 + 7]  # first fully drifted frame
