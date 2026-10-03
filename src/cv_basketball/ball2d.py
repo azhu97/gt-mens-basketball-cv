@@ -58,11 +58,44 @@ def _drop_brief_holds(owners: "pd.Series[int]", min_hold: int) -> "pd.Series[int
     return owners.where(length >= min_hold, NO_OWNER)
 
 
-def ground_ball(tracks: pd.DataFrame, min_hold: int = 3) -> pd.DataFrame:
+def _drop_impossible_holds(
+    held: np.ndarray, owner: np.ndarray, xy: np.ndarray, frames: np.ndarray, max_speed: float
+) -> np.ndarray:
+    """``held`` with holds cleared until no flight between holds needs over ``max_speed``.
+
+    Between two holds the ball flies in a line; if that line is faster than any pass
+    (``max_speed`` in metres per frame), one of the two holds is wrong, typically a
+    ball passing in front of a player. The shorter of the two is cleared, and the check
+    repeats.
+    """
+    held = held.copy()
+    while True:
+        idx = np.flatnonzero(held)
+        if len(idx) < 2:
+            return held
+        # runs of one holder over consecutive held rows
+        starts = [0, *(np.flatnonzero(owner[idx][1:] != owner[idx][:-1]) + 1)]
+        runs = [idx[a:b] for a, b in zip(starts, [*starts[1:], len(idx)], strict=True)]
+        worst = None
+        for r0, r1 in zip(runs, runs[1:], strict=False):
+            dist = np.linalg.norm(xy[r1[0]] - xy[r0[-1]])
+            if dist > max_speed * (frames[r1[0]] - frames[r0[-1]]):
+                worst = r0 if len(r0) < len(r1) else r1
+                break
+        if worst is None:
+            return held
+        held[worst] = False
+
+
+def ground_ball(
+    tracks: pd.DataFrame, min_hold: int = 3, max_pass_speed: float = 20.0, fps: float = 30.0
+) -> pd.DataFrame:
     """Return ``tracks`` with the ball's court position at its holder or between holders.
 
     Adds ``OWNER`` (holder's track ID on ball rows, ``NO_OWNER`` elsewhere); a holder
-    must keep the ball for ``min_hold`` consecutive ball rows. Needs court coordinates.
+    must keep the ball for ``min_hold`` consecutive ball rows, and holds that would need
+    a pass faster than ``max_pass_speed`` m/s between them are dropped (see
+    ``_drop_impossible_holds``). Needs court coordinates.
     """
     out = tracks.copy()
     out[s.OWNER] = NO_OWNER
@@ -83,6 +116,10 @@ def ground_ball(tracks: pd.DataFrame, min_hold: int = 3) -> pd.DataFrame:
 
     # straight lines between held stretches (passes, shots to a rebounder, loose balls)
     frames = balls[s.FRAME].to_numpy(dtype=np.float64)
+    owner_arr = owners.loc[balls.index].to_numpy()
+    held = _drop_impossible_holds(held, owner_arr, xy, frames, max_pass_speed / fps)
+    owners = owners.where(held, NO_OWNER)
+    out.loc[owners.index, s.OWNER] = owners
     if held.any():
         first, last = np.flatnonzero(held)[[0, -1]]
         order = np.arange(len(balls))

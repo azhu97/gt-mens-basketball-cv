@@ -10,7 +10,7 @@ def _rows() -> pd.DataFrame:
     holds it for 10-14 and keeps it; after frame 14 nobody does."""
     rows = []
     for f in range(18):
-        for tid, x, court_x in ((1, 100.0, 2.0), (2, 600.0, 12.0)):
+        for tid, x, court_x in ((1, 100.0, 2.0), (2, 600.0, 5.0)):
             rows.append(
                 {
                     s.FRAME: f,
@@ -54,9 +54,9 @@ def test_held_ball_is_at_the_holders_feet_and_flies_in_a_line() -> None:
     ball = out[out[s.LABEL] == s.BALL].set_index(s.FRAME)
     assert (ball.loc[0:4, s.OWNER] == 1).all() and (ball.loc[10:14, s.OWNER] == 2).all()
     assert np.allclose(ball.loc[0:4, s.COURT[0]], 2.0)
-    assert np.allclose(ball.loc[10:14, s.COURT[0]], 12.0)
-    # in flight: evenly from 2 m to 12 m over frames 4..10
-    assert np.allclose(ball.loc[5:9, s.COURT[0]], 2.0 + np.arange(1, 6) * 10 / 6)
+    assert np.allclose(ball.loc[10:14, s.COURT[0]], 5.0)
+    # in flight: evenly from 2 m to 5 m over frames 4..10 (15 m/s)
+    assert np.allclose(ball.loc[5:9, s.COURT[0]], 2.0 + np.arange(1, 6) * 3 / 6)
     assert np.allclose(ball.loc[5:9, s.COURT[1]], 5.0)
     # after the last hold the ball can't be placed
     assert ball.loc[15:, s.COURT[0]].isna().all()
@@ -70,3 +70,14 @@ def test_ball_passing_a_player_for_one_frame_is_not_held() -> None:
     rows.loc[ball & (rows[s.FRAME] == 7), ["x1", "x2"]] = [620.0, 630.0]
     out = ground_ball(rows)
     assert out.loc[(out[s.LABEL] == s.BALL) & (out[s.FRAME] == 7), s.OWNER].item() == NO_OWNER
+
+
+def test_hold_that_needs_an_impossibly_fast_pass_is_dropped() -> None:
+    rows = _rows()
+    # player 2 is 30 m away: reaching them in 6 frames would be a 150 m/s pass, so
+    # their (shorter-or-equal) hold is the wrong one and the ball is never placed there
+    rows.loc[(rows[s.TRACK_ID] == 2), s.COURT[0]] = 32.0
+    out = ground_ball(rows)
+    ball = out[out[s.LABEL] == s.BALL]
+    assert (ball[s.OWNER] != 2).all()
+    assert not np.isclose(ball[s.COURT[0]], 32.0).any()
