@@ -6,7 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from cv_basketball import schema as s
-from cv_basketball.annotate import render_video
+from cv_basketball.annotate import render_court_video, render_video
 from cv_basketball.cli import app
 from cv_basketball.court import NBA
 from cv_basketball.pipeline import PipelineConfig, postprocess, run
@@ -87,6 +87,23 @@ def test_postprocess_and_render_without_model(synthetic_video: Path, tmp_path: P
     out = tmp_path / "annotated.mp4"
     render_video(synthetic_video, tracks, out, court=NBA)
     assert video_info(out).n_frames == 10
+
+
+def test_court_video_has_a_frame_per_video_frame(tmp_path: Path) -> None:
+    tracks = pd.DataFrame(
+        {
+            s.FRAME: [0, 2],
+            s.LABEL: [s.PLAYER, s.BALL],
+            s.TEAM: [0, -1],
+            s.COURT[0]: [5.0, float("nan")],
+            s.COURT[1]: [7.0, float("nan")],
+        }
+    )
+    out = tmp_path / "court.mp4"
+    render_court_video(tracks, out, NBA, fps=30.0, n_frames=5)
+    info = video_info(out)
+    assert info.n_frames == 5
+    assert info.width > 1000  # full-size, not minimap scale
 
 
 @pytest.mark.slow

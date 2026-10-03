@@ -26,6 +26,7 @@ Outputs go to `runs/<video stem>/`:
 
 - `tracks.parquet` (and `tracks.csv` with `--csv`): one row per detection per frame. The columns are defined in `src/cv_basketball/schema.py`.
 - `annotated.mp4`: team-colored player boxes with track IDs, the ball trail, and a court minimap when a calibration is given.
+- `court.mp4` (with `--separate-court`): the court view as its own full-size top-down video instead of the minimap, frame-for-frame with `annotated.mp4`.
 
 ## Fine-tuning
 

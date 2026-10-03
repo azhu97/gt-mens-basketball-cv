@@ -19,7 +19,7 @@ import pandas as pd
 from numpy.typing import NDArray
 
 from cv_basketball import schema as s
-from cv_basketball.annotate import render_video
+from cv_basketball.annotate import render_court_video, render_video
 from cv_basketball.ball import interpolate_ball, track_ball
 from cv_basketball.camera import court_homographies, frame_motion
 from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
@@ -32,6 +32,7 @@ from cv_basketball.teams import (
     torso_color_feature,
 )
 from cv_basketball.tracking import DEFAULT_TRACKER, track_video
+from cv_basketball.video import video_info
 
 
 @dataclass
@@ -46,6 +47,7 @@ class PipelineConfig:
     calibration: Path | None = None
     export_csv: bool = False
     render: bool = True
+    separate_court: bool = False  # court view in its own court.mp4, not an inset
 
 
 def detect_and_track(video: Path, cfg: PipelineConfig) -> tuple[pd.DataFrame, NDArray[np.float64]]:
@@ -134,7 +136,11 @@ def postprocess(
 
 
 def run(video: Path, out_dir: Path, cfg: PipelineConfig) -> pd.DataFrame:
-    """Run the full pipeline, writing ``tracks.parquet`` (+ csv) and ``annotated.mp4``."""
+    """Run the full pipeline, writing ``tracks.parquet`` (+ csv) and ``annotated.mp4``.
+
+    With a calibration, the court view is a minimap inside ``annotated.mp4``, or its own
+    ``court.mp4`` when ``cfg.separate_court`` is set.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     keyframes = load_calibrations(cfg.calibration) if cfg.calibration else None
 
@@ -147,5 +153,15 @@ def run(video: Path, out_dir: Path, cfg: PipelineConfig) -> pd.DataFrame:
         tracks.to_csv(out_dir / "tracks.csv", index=False)
     if cfg.render:
         court = keyframes[0].spec if keyframes else None
-        render_video(video, tracks, out_dir / "annotated.mp4", court, homographies)
+        render_video(
+            video,
+            tracks,
+            out_dir / "annotated.mp4",
+            court,
+            homographies,
+            minimap=not cfg.separate_court,
+        )
+        if court is not None and cfg.separate_court:
+            info = video_info(video)
+            render_court_video(tracks, out_dir / "court.mp4", court, info.fps, len(motions))
     return tracks

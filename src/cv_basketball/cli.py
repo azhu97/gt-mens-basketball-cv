@@ -30,6 +30,10 @@ def track(
     ball_imgsz: Annotated[int, typer.Option(help="Input size for the ball detector")] = 1280,
     csv: Annotated[bool, typer.Option(help="Also write tracks.csv")] = False,
     render: Annotated[bool, typer.Option(help="Write annotated.mp4")] = True,
+    separate_court: Annotated[
+        bool,
+        typer.Option(help="Write the court view to its own court.mp4 instead of a minimap"),
+    ] = False,
 ) -> None:
     """Detect and track players and ball, assign teams, and export results."""
     from cv_basketball.device import select_device
@@ -46,6 +50,7 @@ def track(
         calibration=calibration,
         export_csv=csv,
         render=render,
+        separate_court=separate_court,
     )
     out_dir = out / video.stem
     typer.echo(f"Tracking {video} on {cfg.device} -> {out_dir}")

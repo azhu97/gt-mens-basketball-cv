@@ -10,7 +10,7 @@ from numpy.typing import NDArray
 
 from cv_basketball import schema as s
 from cv_basketball.court import CourtSpec, court_lines, court_to_pixel, draw_court
-from cv_basketball.video import Frame, iter_frames, open_writer, video_info
+from cv_basketball.video import Frame, VideoInfo, iter_frames, open_writer, video_info
 
 TEAM_COLORS: dict[int, tuple[int, int, int]] = {  # BGR
     0: (60, 60, 230),
@@ -20,20 +20,28 @@ TEAM_COLORS: dict[int, tuple[int, int, int]] = {  # BGR
 BALL_COLOR = (0, 220, 255)
 TRAIL_LEN = 20
 MINIMAP_PX_PER_M = 10.0
+COURT_VIDEO_PX_PER_M = 40.0
 COURT_LINE_COLOR = (255, 0, 255)
+
+
+def _draw_court_dots(img: Frame, rows: pd.DataFrame, px_per_m: float) -> None:
+    """Draw players (team-colored) and the ball at their court coordinates on a court image."""
+    if s.COURT[0] not in rows:
+        return
+    rows = rows.dropna(subset=list(s.COURT))
+    radius = max(2, round(px_per_m / 2))
+    pts = court_to_pixel(rows[s.COURT].to_numpy(dtype=np.float64), px_per_m)
+    for (px, py), label, team in zip(pts, rows[s.LABEL], rows[s.TEAM], strict=True):
+        if label == s.BALL:
+            cv2.circle(img, (int(px), int(py)), max(2, radius * 3 // 5), BALL_COLOR, -1)
+        else:
+            color = TEAM_COLORS.get(int(team), TEAM_COLORS[-1])
+            cv2.circle(img, (int(px), int(py)), radius, color, -1)
 
 
 def _draw_minimap(frame: Frame, rows: pd.DataFrame, court_img: Frame) -> None:
     mini = court_img.copy()
-    if s.COURT[0] in rows:
-        pts = court_to_pixel(rows[s.COURT].to_numpy(dtype=np.float64), MINIMAP_PX_PER_M)
-        for (px, py), label, team in zip(pts, rows[s.LABEL], rows[s.TEAM], strict=True):
-            if label == s.BALL:
-                cv2.circle(mini, (int(px), int(py)), 3, BALL_COLOR, -1)
-            else:
-                cv2.circle(
-                    mini, (int(px), int(py)), 5, TEAM_COLORS.get(int(team), TEAM_COLORS[-1]), -1
-                )
+    _draw_court_dots(mini, rows, MINIMAP_PX_PER_M)
     mh, mw = mini.shape[:2]
     fh, fw = frame.shape[:2]
     if mh + 10 <= fh and mw + 10 <= fw:
@@ -56,17 +64,19 @@ def render_video(
     out_path: Path,
     court: CourtSpec | None = None,
     homographies: NDArray[np.float64] | None = None,
+    minimap: bool = True,
 ) -> None:
     """Draw player boxes (team-colored, with IDs), the ball and its trail, and a minimap.
 
-    The minimap is drawn only when ``court`` is given and tracks have court coordinates.
-    With per-frame image->court ``homographies`` too, the court lines are overlaid.
+    The minimap is drawn only when ``court`` is given, ``minimap`` is set, and tracks have
+    court coordinates. With per-frame image->court ``homographies`` too, the court lines
+    are overlaid.
     """
     info = video_info(video)
     writer = open_writer(out_path, info)
     by_frame = dict(tuple(tracks.groupby(s.FRAME)))
     trail: deque[tuple[int, int]] = deque(maxlen=TRAIL_LEN)
-    court_img = draw_court(court, MINIMAP_PX_PER_M) if court is not None else None
+    court_img = draw_court(court, MINIMAP_PX_PER_M) if court is not None and minimap else None
     lines = court_lines(court) if court is not None else []
     empty = tracks.iloc[0:0]
 
@@ -90,5 +100,26 @@ def render_video(
             if court_img is not None:
                 _draw_minimap(frame, rows, court_img)
             writer.write(frame)
+    finally:
+        writer.release()
+
+
+def render_court_video(
+    tracks: pd.DataFrame, out_path: Path, court: CourtSpec, fps: float, n_frames: int
+) -> None:
+    """Top-down court video with a dot per player and the ball, one frame per video frame.
+
+    Drawn from the tracks table alone, so it never reads the source video.
+    """
+    court_img = draw_court(court, COURT_VIDEO_PX_PER_M)
+    h, w = court_img.shape[:2]
+    writer = open_writer(out_path, VideoInfo(fps=fps, width=w, height=h, n_frames=n_frames))
+    by_frame = dict(tuple(tracks.groupby(s.FRAME)))
+    try:
+        for idx in range(n_frames):
+            img = court_img.copy()
+            if idx in by_frame:
+                _draw_court_dots(img, by_frame[idx], COURT_VIDEO_PX_PER_M)
+            writer.write(img)
     finally:
         writer.release()
