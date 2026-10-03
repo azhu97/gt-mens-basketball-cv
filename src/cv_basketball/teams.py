@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
 from sklearn.cluster import KMeans
+from sklearn.linear_model import LogisticRegression
 
 from cv_basketball import schema as s
 from cv_basketball.segments import split_on_change
@@ -69,22 +70,54 @@ def occluded_torsos(people: pd.DataFrame, max_overlap: float = 0.3) -> "pd.Serie
     return occluded
 
 
+def _clean_features(
+    rows: pd.DataFrame, occluded: "pd.Series[bool] | None"
+) -> tuple[NDArray[np.float64], NDArray[np.bool_]]:
+    """Color features of ``rows`` and which are usable (tracked, present, not occluded)."""
+    feats = rows[s.COLOR_FEATURES].to_numpy(dtype=np.float64)
+    valid = (rows[s.TRACK_ID].to_numpy() >= 0) & ~np.isnan(feats).any(axis=1)
+    if occluded is not None:
+        valid &= ~occluded.loc[rows.index].to_numpy(dtype=bool)
+    return feats, valid
+
+
+def referee_like(
+    feats: NDArray[np.float64], player_feats: NDArray[np.float64], ref_feats: NDArray[np.float64]
+) -> NDArray[np.bool_]:
+    """Whether each row of ``feats`` is dressed more like the referees than the players.
+
+    A logistic regression on the detector's own player/referee labels learns what sets
+    the striped shirt apart. A distance to the mean referee color can't do that: purple
+    jerseys in shadow are as close to it as the stripes are.
+    """
+    x = np.vstack([player_feats, ref_feats])
+    y = np.r_[np.zeros(len(player_feats)), np.ones(len(ref_feats))]
+    lr = LogisticRegression(max_iter=2000, class_weight="balanced").fit(x, y)
+    return np.asarray(lr.predict(feats) == 1, dtype=np.bool_)
+
+
 def cluster_jerseys(
     players: pd.DataFrame,
     occluded: "pd.Series[bool] | None" = None,
     n_teams: int = 2,
     seed: int = 0,
+    referees: pd.DataFrame | None = None,
 ) -> "pd.Series[int]":
     """Return a jersey-color cluster per row of ``players`` (``UNKNOWN_TEAM`` if unclusterable).
 
     Rows without a track ID or a color feature, or flagged in ``occluded``, are not
-    clustered.
+    clustered. With ``referees``, rows dressed like a referee (see ``referee_like``) get
+    cluster ``n_teams``, which is not a team, and are left out of the team clustering.
     """
     clusters = pd.Series(UNKNOWN_TEAM, index=players.index, dtype="int64")
-    feats = players[s.COLOR_FEATURES].to_numpy(dtype=np.float64)
-    valid = (players[s.TRACK_ID].to_numpy() >= 0) & ~np.isnan(feats).any(axis=1)
-    if occluded is not None:
-        valid &= ~occluded.loc[players.index].to_numpy(dtype=bool)
+    feats, valid = _clean_features(players, occluded)
+    if referees is not None:
+        ref_feats, ref_valid = _clean_features(referees, occluded)
+        if ref_valid.any() and valid.any():
+            ref_like = valid.copy()
+            ref_like[valid] = referee_like(feats[valid], feats[valid], ref_feats[ref_valid])
+            clusters.loc[ref_like] = n_teams
+            valid &= ~ref_like
     valid_feats = feats[valid]
     if len(np.unique(valid_feats, axis=0)) < n_teams:
         return clusters
@@ -100,11 +133,17 @@ def cluster_jerseys(
     return clusters
 
 
-def vote_teams(track_ids: "pd.Series[int]", clusters: "pd.Series[int]") -> "pd.Series[int]":
-    """Majority-vote ``clusters`` within each track; rows without a track ID stay unknown."""
+def vote_teams(
+    track_ids: "pd.Series[int]", clusters: "pd.Series[int]", n_teams: int = 2
+) -> "pd.Series[int]":
+    """Majority-vote ``clusters`` within each track; rows without a track ID stay unknown.
+
+    A track that votes for a cluster that is not a team (``>= n_teams``) is unknown too.
+    """
     team = pd.Series(UNKNOWN_TEAM, index=track_ids.index, dtype="int64")
     known = clusters != UNKNOWN_TEAM
     per_track = clusters[known].groupby(track_ids[known]).agg(lambda v: int(v.mode().iloc[0]))
+    per_track = per_track.where(per_track < n_teams, UNKNOWN_TEAM)
     tracked = track_ids >= 0
     team.loc[tracked] = track_ids[tracked].map(per_track).fillna(UNKNOWN_TEAM).astype("int64")
     return team
@@ -116,12 +155,17 @@ def assign_teams(
     occluded: "pd.Series[bool] | None" = None,
     n_teams: int = 2,
     seed: int = 0,
+    referees: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Return ``track_id`` (split at team changes) and ``team`` for each row of ``players``.
 
     Team is constant within each returned track ID. Rows flagged in ``occluded`` don't
-    vote. Referees and bench players are not handled and will be forced into a team.
+    vote. With ``referees``, tracks (or the part of one) dressed like a referee, such as
+    a referee the detector called a player, get ``UNKNOWN_TEAM`` instead of a team.
+    Coaches and bench players often do too, since they aren't in a team jersey.
     """
-    clusters = cluster_jerseys(players, occluded, n_teams, seed)
-    track_ids = split_on_change(players, clusters, next_track_id, n_teams)
-    return pd.DataFrame({s.TRACK_ID: track_ids, s.TEAM: vote_teams(track_ids, clusters)})
+    clusters = cluster_jerseys(players, occluded, n_teams, seed, referees)
+    n_values = n_teams + (referees is not None)
+    track_ids = split_on_change(players, clusters, next_track_id, n_values)
+    team = vote_teams(track_ids, clusters, n_teams)
+    return pd.DataFrame({s.TRACK_ID: track_ids, s.TEAM: team})

@@ -115,10 +115,12 @@ def postprocess(
     players = people[people[s.LABEL] == s.PLAYER].copy()
     next_track_id = int(people[s.TRACK_ID].max()) + 1 if len(people) else 0
     occluded = occluded_torsos(people)
-    players[[s.TRACK_ID, s.TEAM]] = assign_teams(players, next_track_id, occluded)
+    referees = people[people[s.LABEL] == s.REFEREE].copy()
+    players[[s.TRACK_ID, s.TEAM]] = assign_teams(
+        players, next_track_id, occluded, referees=referees if len(referees) else None
+    )
     players[s.INTERPOLATED] = False
 
-    referees = people[people[s.LABEL] == s.REFEREE].copy()
     referees[s.TEAM] = UNKNOWN_TEAM
     referees[s.INTERPOLATED] = False
 

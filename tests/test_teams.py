@@ -115,3 +115,18 @@ def test_white_jersey_with_dark_skin_and_numbers_stays_apart_from_dark_jersey() 
     box = np.array([0, 0, 100, 200], dtype=np.float32)
     w, m, d = (torso_color_feature(img, box) for img in (white, mixed, maroon))
     assert np.linalg.norm(m - w) < np.linalg.norm(m - d)
+
+
+def test_player_dressed_like_the_referees_gets_no_team() -> None:
+    # Track 3 is a referee (grey here) the detector called a player; without the
+    # referees' colors it would be forced into a team.
+    grey = (128, 128, 128)
+    players = pd.DataFrame(
+        _player_rows(1, RED, 50) + _player_rows(2, BLUE, 50) + _player_rows(3, grey, 50)
+    )
+    referees = pd.DataFrame(_player_rows(9, grey, 50))
+
+    out = assign_teams(players, next_track_id=10, referees=referees)
+    team = out.groupby(s.TRACK_ID)[s.TEAM].first()
+    assert team[3] == UNKNOWN_TEAM
+    assert UNKNOWN_TEAM != team[1] != team[2] != UNKNOWN_TEAM
