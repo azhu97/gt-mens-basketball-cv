@@ -120,6 +120,21 @@ def track(
 
 
 @app.command()
+def flips(
+    tracks: Annotated[
+        Path, typer.Argument(exists=True, dir_okay=False, help="tracks.parquet from `cvb track`")
+    ],
+) -> None:
+    """Report how stable the team labels in a tracks table are (see diagnostics.py)."""
+    import pandas as pd
+
+    from cv_basketball.diagnostics import flip_report
+
+    for name, value in flip_report(pd.read_parquet(tracks)).as_dict().items():
+        typer.echo(f"{name:30} {value}")
+
+
+@app.command()
 def calibrate(
     video: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
     out: Annotated[Path | None, typer.Option(help="Defaults to <video>.calibration.json")] = None,

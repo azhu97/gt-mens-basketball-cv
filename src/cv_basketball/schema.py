@@ -19,6 +19,13 @@ COLOR_FEATURES = [f"torso_hist_{i}" for i in range(HIST_BINS_L + 2 * HIST_BINS_A
 # inside, negative outside (see floor.py). Off-court tracks are dropped in postprocess.
 FLOOR_DIST = "floor_dist"
 TEAM = "team"  # 0/1 for players, -1 for unknown / referee / ball
+# Diagnostics for team assignment (people only; -1 / NaN for the ball):
+# the tracker's own ID, before swap repair and splits changed TRACK_ID
+TRACKER_ID = "tracker_id"
+# this row's own jersey-color vote: 0/1 a team cluster, 2 dressed like a referee, -1 none
+# (occluded torso or no color); TEAM is the per-track majority of these
+TEAM_VOTE = "team_vote"
+MAX_IOU = "max_iou"  # largest IoU of this box with another person's box in the frame
 INTERPOLATED = "interpolated"  # True for ball rows filled between detections
 COURT = ["court_x", "court_y"]  # metres on the top-down court; only with a calibration
 

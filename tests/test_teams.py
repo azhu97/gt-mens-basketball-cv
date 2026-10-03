@@ -14,7 +14,13 @@ def _player_rows(
     frame[:] = bgr
     color = torso_color_feature(frame, np.array([0, 0, 100, 200], dtype=np.float32))
     return [
-        {s.FRAME: f, s.TRACK_ID: track_id, **dict(zip(s.COLOR_FEATURES, color, strict=True))}
+        {
+            s.FRAME: f,
+            s.TRACK_ID: track_id,
+            # side by side, never overlapping, so no collisions
+            **dict(zip(s.BOX, (100.0 * track_id, 0.0, 100.0 * track_id + 50, 100.0), strict=True)),
+            **dict(zip(s.COLOR_FEATURES, color, strict=True)),
+        }
         for f in range(start, start + n)
     ]
 

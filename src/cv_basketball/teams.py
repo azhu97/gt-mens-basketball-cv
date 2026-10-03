@@ -1,4 +1,6 @@
-"""Team assignment: cluster jersey colors, split tracks at team changes, vote per track."""
+"""Team assignment: cluster jersey colors, repair ID swaps, split tracks at team changes, vote."""
+
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -9,12 +11,33 @@ from sklearn.linear_model import LogisticRegression
 
 from cv_basketball import schema as s
 from cv_basketball.segments import split_on_change
+from cv_basketball.swaps import repair_swaps
 
 UNKNOWN_TEAM = -1
 _MAX_FIT_SAMPLES = 5000
 # Upper-torso band as fractions of the box: central 50% width, 15-50% height. Avoids
 # background, head and shorts.
 _TORSO = np.array([0.25, 0.15, 0.75, 0.50])
+
+
+@dataclass(frozen=True)
+class TeamParams:
+    """Thresholds for team assignment (``PipelineConfig.teams``)."""
+
+    # A row doesn't vote when another box covers more than this share of its torso.
+    occluded_overlap: float = 0.3
+    # Swap repair (see swaps.repair_swaps): boxes overlapping by more than this IoU are
+    # a collision, merged across dips of up to swap_gap frames; votes within
+    # swap_window frames either side are its evidence; tails are swapped when that is
+    # more than swap_margin more likely (natural-log units).
+    swap_iou: float = 0.15
+    swap_gap: int = 15
+    swap_window: int = 60
+    swap_margin: float = 30.0
+    # Splits (see segments.split_on_change): votes are smoothed over this many rows,
+    # and a track is cut only where the change lasts this many rows.
+    split_window: int = 15
+    split_min_run: int = 30
 
 
 def torso_boxes(xyxy: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -156,16 +179,36 @@ def assign_teams(
     n_teams: int = 2,
     seed: int = 0,
     referees: pd.DataFrame | None = None,
+    params: TeamParams | None = None,
 ) -> pd.DataFrame:
-    """Return ``track_id`` (split at team changes) and ``team`` for each row of ``players``.
+    """Return ``track_id``, ``team`` and ``team_vote`` for each row of ``players``.
 
-    Team is constant within each returned track ID. Rows flagged in ``occluded`` don't
-    vote. With ``referees``, tracks (or the part of one) dressed like a referee, such as
-    a referee the detector called a player, get ``UNKNOWN_TEAM`` instead of a team.
-    Coaches and bench players often do too, since they aren't in a team jersey.
+    Team is constant within each returned track ID. Track IDs are first repaired where
+    two tracks swapped people in a collision (``swaps.repair_swaps``), then split where
+    the jersey still changes for good. ``team_vote`` is each row's own cluster; rows
+    flagged in ``occluded`` have none and don't vote. With ``referees``, tracks (or the
+    part of one) dressed like a referee, such as a referee the detector called a player,
+    get ``UNKNOWN_TEAM`` instead of a team. Coaches and bench players often do too,
+    since they aren't in a team jersey.
     """
+    params = params or TeamParams()
     clusters = cluster_jerseys(players, occluded, n_teams, seed, referees)
     n_values = n_teams + (referees is not None)
-    track_ids = split_on_change(players, clusters, next_track_id, n_values)
+    repaired = players.assign(
+        **{
+            s.TRACK_ID: repair_swaps(
+                players,
+                clusters,
+                n_values,
+                params.swap_iou,
+                params.swap_window,
+                params.swap_margin,
+                max_gap=params.swap_gap,
+            )
+        }
+    )
+    track_ids = split_on_change(
+        repaired, clusters, next_track_id, n_values, params.split_window, params.split_min_run
+    )
     team = vote_teams(track_ids, clusters, n_teams)
-    return pd.DataFrame({s.TRACK_ID: track_ids, s.TEAM: team})
+    return pd.DataFrame({s.TRACK_ID: track_ids, s.TEAM: team, s.TEAM_VOTE: clusters})

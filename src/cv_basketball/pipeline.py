@@ -9,7 +9,7 @@ hand-calibrated keyframes to every frame for court coordinates. Pass 2 re-reads 
 video to render the annotated output.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +25,10 @@ from cv_basketball.camera import court_homographies, frame_motion
 from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
 from cv_basketball.homography import Calibration, add_court_coords, load_calibrations
 from cv_basketball.labels import vote_person_labels
+from cv_basketball.swaps import max_iou
 from cv_basketball.teams import (
     UNKNOWN_TEAM,
+    TeamParams,
     assign_teams,
     occluded_torsos,
     torso_color_feature,
@@ -48,6 +50,7 @@ class PipelineConfig:
     export_csv: bool = False
     render: bool = True
     separate_court: bool = False  # court view in its own court.mp4, not an inset
+    teams: TeamParams = field(default_factory=TeamParams)
 
 
 def detect_and_track(video: Path, cfg: PipelineConfig) -> tuple[pd.DataFrame, NDArray[np.float64]]:
@@ -109,23 +112,30 @@ def postprocess(
     """
     people = raw[raw[s.LABEL].isin([s.PLAYER, s.REFEREE])]
     people = people[on_court_tracks(people)].copy()
+    people[s.TRACKER_ID] = people[s.TRACK_ID]
+    people[s.MAX_IOU] = max_iou(people)
+    tp = cfg.teams
     next_track_id = int(people[s.TRACK_ID].max()) + 1 if len(people) else 0
-    people[[s.TRACK_ID, s.LABEL]] = vote_person_labels(people, next_track_id)
+    people[[s.TRACK_ID, s.LABEL]] = vote_person_labels(
+        people, next_track_id, tp.split_window, tp.split_min_run
+    )
 
     players = people[people[s.LABEL] == s.PLAYER].copy()
     next_track_id = int(people[s.TRACK_ID].max()) + 1 if len(people) else 0
-    occluded = occluded_torsos(people)
+    occluded = occluded_torsos(people, tp.occluded_overlap)
     referees = people[people[s.LABEL] == s.REFEREE].copy()
-    players[[s.TRACK_ID, s.TEAM]] = assign_teams(
-        players, next_track_id, occluded, referees=referees if len(referees) else None
+    players[[s.TRACK_ID, s.TEAM, s.TEAM_VOTE]] = assign_teams(
+        players, next_track_id, occluded, referees=referees if len(referees) else None, params=tp
     )
     players[s.INTERPOLATED] = False
 
     referees[s.TEAM] = UNKNOWN_TEAM
+    referees[s.TEAM_VOTE] = UNKNOWN_TEAM
     referees[s.INTERPOLATED] = False
 
     balls = interpolate_ball(track_ball(raw[raw[s.LABEL] == s.BALL], people), cfg.ball_max_gap)
     balls[s.TEAM] = UNKNOWN_TEAM
+    balls[[s.TRACKER_ID, s.TEAM_VOTE]] = -1
 
     tracks = (
         pd.concat([players, referees, balls], ignore_index=True)
