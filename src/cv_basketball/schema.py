@@ -30,6 +30,9 @@ INTERPOLATED = "interpolated"  # True for ball rows filled between detections
 # metres on the top-down court; only with a calibration. Players: their (smoothed) feet.
 # Ball: its holder's feet, or a straight line between holders (see ball2d.py).
 COURT = ["court_x", "court_y"]
+# image y of a person's feet, restored where their box is cut off at the bottom (see
+# paths.foot_y); the court position is projected from it
+FOOT_Y = "foot_y"
 OWNER = "owner"  # ball rows: track ID of the player holding it (-1 none); -1 elsewhere
 
 PLAYER = "player"

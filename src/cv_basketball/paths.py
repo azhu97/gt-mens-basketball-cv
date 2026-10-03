@@ -180,3 +180,29 @@ def off_court_people(
     share = outside[rows].astype(float).groupby(tracks.loc[rows, s.TRACK_ID]).mean()
     off_tracks = share.index[share.to_numpy() > max_share]
     return rows & tracks[s.TRACK_ID].isin(off_tracks)
+
+
+def foot_y(people: pd.DataFrame, window: int = 31, min_ratio: float = 0.85) -> "pd.Series[float]":
+    """Image y of each person's feet, restored where the box is cut off at the bottom.
+
+    When another player hides someone's legs, the detector's box stops at the knees and
+    the projected feet jump metres towards the camera's far side. Per track, a box
+    shorter than ``min_ratio`` of the track's rolling median height (over ``window``
+    frames) whose bottom edge moved more than its top edge is cut at the bottom; its
+    feet are put at its top plus the median height instead.
+    """
+    feet = people["y2"].astype(float).copy()
+    for _, track in people[people[s.TRACK_ID] >= 0].sort_values(s.FRAME).groupby(s.TRACK_ID):
+        if len(track) < 5:
+            continue
+        y1, y2 = track["y1"].astype(float), track["y2"].astype(float)
+
+        def rolling_median(v: "pd.Series[float]") -> "pd.Series[float]":
+            return v.rolling(window, center=True, min_periods=5).median()
+
+        height = rolling_median(y2 - y1)
+        top_shift = (y1 - rolling_median(y1)).abs()
+        bottom_shift = (y2 - rolling_median(y2)).abs()
+        cut = ((y2 - y1) < min_ratio * height) & (bottom_shift > top_shift)
+        feet.loc[cut[cut].index] = (y1 + height)[cut]
+    return feet

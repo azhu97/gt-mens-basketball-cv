@@ -92,7 +92,9 @@ def ground_points(tracks: pd.DataFrame) -> NDArray[np.float64]:
     past their true position.
     """
     x = ((tracks["x1"] + tracks["x2"]) / 2).to_numpy(dtype=np.float64)
-    y = tracks["y2"].to_numpy(dtype=np.float64)
+    # FOOT_Y, where present, is the feet restored under a box cut off at the knees
+    feet = tracks[s.FOOT_Y].fillna(tracks["y2"]) if s.FOOT_Y in tracks else tracks["y2"]
+    y = feet.to_numpy(dtype=np.float64)
     return np.stack([x, y], axis=1)
 
 

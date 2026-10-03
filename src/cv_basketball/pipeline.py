@@ -34,7 +34,7 @@ from cv_basketball.homography import (
     reject_bad_keyframes,
 )
 from cv_basketball.labels import vote_person_labels
-from cv_basketball.paths import fill_gaps, off_court_people, smooth_paths, stitch_into_gaps
+from cv_basketball.paths import fill_gaps, foot_y, off_court_people, smooth_paths, stitch_into_gaps
 from cv_basketball.smoothing import drop_blips, smooth_teams
 from cv_basketball.swaps import max_iou
 from cv_basketball.teams import (
@@ -66,6 +66,7 @@ class PipelineConfig:
     path_median: int = 5
     path_window: int = 15
     max_fill_gap: int = 30  # fill gaps inside a person's track up to this many frames
+    restore_feet: bool = True  # feet under boxes cut off at the knees (paths.foot_y)
     ground_ball: bool = True  # ball at its holder's feet / between holders (ball2d.py)
 
 
@@ -166,6 +167,8 @@ def postprocess(
         .reset_index(drop=True)
     )
     if homographies is not None:
+        if cfg.restore_feet:
+            tracks[s.FOOT_Y] = foot_y(tracks[tracks[s.LABEL] != s.BALL])
         tracks = add_court_coords(tracks, dict(enumerate(homographies)))
         if court is not None:
             tracks = tracks[~off_court_people(tracks, court)].reset_index(drop=True)

@@ -121,3 +121,39 @@ def test_teamless_track_mostly_off_court_is_flagged() -> None:
     tracks = pd.DataFrame(rows)
     flagged = off_court_people(tracks, NBA)
     assert set(tracks.loc[flagged, s.TRACK_ID]) == {1}
+
+
+def test_feet_are_restored_under_a_box_cut_off_at_the_knees() -> None:
+    from cv_basketball.paths import foot_y
+
+    rows = [
+        {
+            s.FRAME: f,
+            s.TRACK_ID: 1,
+            "x1": 0.0,
+            "y1": 100.0,
+            "x2": 50.0,
+            "y2": 250.0 if 20 <= f < 25 else 300.0,
+        }  # legs hidden for frames 20-24
+        for f in range(40)
+    ]
+    people = pd.DataFrame(rows)
+    feet = foot_y(people)
+    assert np.allclose(feet, 300.0)
+
+
+def test_box_cut_off_at_the_top_keeps_its_feet() -> None:
+    from cv_basketball.paths import foot_y
+
+    rows = [
+        {
+            s.FRAME: f,
+            s.TRACK_ID: 1,
+            "x1": 0.0,
+            "y1": 150.0 if 20 <= f < 25 else 100.0,
+            "x2": 50.0,
+            "y2": 300.0,
+        }  # head hidden for frames 20-24
+        for f in range(40)
+    ]
+    assert np.allclose(foot_y(pd.DataFrame(rows)), 300.0)
