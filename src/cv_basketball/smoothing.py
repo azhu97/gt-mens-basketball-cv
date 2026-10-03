@@ -80,3 +80,51 @@ def drop_blips(players: pd.DataFrame, min_rows: int = 10) -> "pd.Series[bool]":
     """
     size = players.groupby(s.TRACK_ID)[s.FRAME].transform("size")
     return ~((players[s.TEAM] == UNKNOWN_TEAM) & (size < min_rows))
+
+
+def grey_out_sixth_players(
+    players: pd.DataFrame, max_per_team: int = 5, window: int = 30
+) -> "pd.Series[int]":
+    """Team per row with the weakest extra players in over-full frames set to unknown.
+
+    A team can't have more than ``max_per_team`` players on the court, so in a frame
+    with more, someone's team is wrong. Crowded frames of one team are grouped into
+    stretches (gaps up to ``window`` frames); within a stretch, tracks are ranked by
+    their support, meaning clean votes for the team minus votes against it, from
+    ``window`` frames before the stretch to ``window`` after. In each crowded frame,
+    the lowest-ranked tracks (as many as the stretch's worst excess) lose their team for
+    the whole stretch, so the same player is changed throughout. If the other team has
+    room for them in every frame of the stretch, they join it (typically a player
+    hidden behind an opponent who took the opponent's colour); otherwise they turn grey,
+    which is better than the wrong colour.
+    """
+    team = players[s.TEAM].copy()
+    on_team = players[team.isin([0, 1])]
+    sizes = on_team.groupby([s.FRAME, s.TEAM])[s.TRACK_ID].transform("size")
+    crowded = on_team[sizes > max_per_team]
+    votes = players[s.TEAM_VOTE]
+    for _, rows in crowded.groupby(s.TEAM):
+        tm = int(rows[s.TEAM].iloc[0])
+        frames = np.sort(rows[s.FRAME].unique())
+        stretch = np.r_[0, np.cumsum(np.diff(frames) > window)]
+        for k in np.unique(stretch):
+            lo, hi = frames[stretch == k][[0, -1]]
+            near = players[
+                players[s.FRAME].between(lo - window, hi + window) & (players[s.TEAM] == tm)
+            ]
+            v = votes.loc[near.index]
+            score = (v == tm).astype(int) - ((v != tm) & v.isin([0, 1])).astype(int)
+            support = score.groupby(near[s.TRACK_ID]).sum()
+            # the weakest tracks among the crowded frames, grey for the whole stretch
+            in_stretch = rows[rows[s.FRAME].between(lo, hi)]
+            extra = int(in_stretch.groupby(s.FRAME).size().max()) - max_per_team
+            present = support.loc[in_stretch[s.TRACK_ID].unique()].sort_values(kind="stable")
+            weakest = present.index[:extra]
+            span = players[s.FRAME].between(lo, hi) & players[s.TRACK_ID].isin(weakest)
+            # if the other team is short throughout, that's where the extras belong
+            other = 1 - tm
+            stretch_frames = players[players[s.FRAME].between(lo, hi)]
+            other_size = (stretch_frames[s.TEAM] == other).groupby(stretch_frames[s.FRAME]).sum()
+            fits = int(other_size.max()) + extra <= max_per_team
+            team[span & (team == tm)] = other if fits else UNKNOWN_TEAM
+    return team

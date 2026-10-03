@@ -51,3 +51,22 @@ def test_drop_blips_drops_short_unknown_tracks_only() -> None:
     players = _pieces((1, -1, 5, -1), (2, 0, 5, 0), (3, -1, 50, -1))
     keep = drop_blips(players, min_rows=10)
     assert set(players.loc[keep, s.TRACK_ID]) == {2, 3}
+
+
+def test_sixth_player_with_least_support_moves_to_the_short_team() -> None:
+    from cv_basketball.smoothing import grey_out_sixth_players
+
+    rows = []
+    for f in range(20):
+        # five solid team-0 players, four team-1 players, and track 9: tagged team 0
+        # but its own recent votes say team 1
+        for tid, team, vote in [
+            *((i, 0, 0) for i in range(5)),
+            *((i, 1, 1) for i in range(5, 9)),
+            (9, 0, 1),
+        ]:
+            rows.append({s.FRAME: f, s.TRACK_ID: tid, s.TEAM: team, s.TEAM_VOTE: vote})
+    players = pd.DataFrame(rows)
+    out = grey_out_sixth_players(players)
+    assert (out[players[s.TRACK_ID] == 9] == 1).all()
+    assert (out[players[s.TRACK_ID] != 9] == players.loc[players[s.TRACK_ID] != 9, s.TEAM]).all()
