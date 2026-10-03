@@ -27,7 +27,7 @@ uv run cvb train data/datasets/PROJECT/data.yaml        # -> runs/train/basketba
 
 This is an offline pipeline (`pipeline.run`) that makes **two passes over the video** and uses **one DataFrame as the contract between stages**:
 
-1. **Pass 1, `detect_and_track`**: `tracking.track_video` reads frames with OpenCV and runs two YOLO instances on each one: `model.track(persist=True)` for players (bundled `botsort_basketball.yaml` by default) and a plain `predict` at `ball_imgsz=1280` for the ball. For each player box it samples the jersey color (`teams.torso_color_feature`, mean LAB of the upper-torso crop) right away, so frames never need to be kept in memory.
+1. **Pass 1, `detect_and_track`**: `tracking.track_video` reads frames with OpenCV and runs two YOLO instances on each one: `model.track(persist=True)` for players (bundled `botsort_basketball.yaml` by default) and a plain `predict` at `ball_imgsz=1280` for the ball. For each player box it samples the jersey color (`teams.torso_color_feature`, a LAB histogram of the upper-torso crop) right away, so frames never need to be kept in memory.
 2. **Post-process, `postprocess`**: this step works only on the DataFrame. Ball rows go through `select_ball` (the top-confidence detection per frame) and then `interpolate_ball` (linear fill of short gaps, marked `interpolated=True`). Player rows go through `assign_teams` (KMeans on color, then a majority vote per `track_id`, so a track never switches teams). If a calibration is given, `homography.add_court_coords` projects the bottom-centre of each box into court metres.
 3. **Pass 2, `annotate.render_video`**: re-reads the video with OpenCV and draws from the DataFrame.
 

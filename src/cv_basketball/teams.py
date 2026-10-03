@@ -24,17 +24,22 @@ def torso_boxes(xyxy: NDArray[np.float64]) -> NDArray[np.float64]:
 
 
 def torso_color_feature(frame: NDArray[np.uint8], xyxy: NDArray[np.float32]) -> NDArray[np.float64]:
-    """Mean LAB color of the upper-torso region of a player box (NaNs if the crop is empty)."""
+    """LAB histogram of the upper-torso region of a player box (NaNs if the crop is empty).
+
+    See ``schema.COLOR_FEATURES`` for the layout and why it isn't a mean color.
+    """
     tx1, ty1, tx2, ty2 = torso_boxes(np.asarray(xyxy, dtype=np.float64).reshape(1, 4))[0]
-    cx1, cx2, cy1, cy2 = int(tx1), int(tx2), int(ty1), int(ty2)
     fh, fw = frame.shape[:2]
-    cx1, cx2 = max(cx1, 0), min(cx2, fw)
-    cy1, cy2 = max(cy1, 0), min(cy2, fh)
+    cx1, cx2 = max(int(tx1), 0), min(int(tx2), fw)
+    cy1, cy2 = max(int(ty1), 0), min(int(ty2), fh)
     if cx2 <= cx1 or cy2 <= cy1:
-        return np.full(3, np.nan)
-    crop = frame[cy1:cy2, cx1:cx2]
-    lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
-    return np.asarray(lab.reshape(-1, 3).mean(axis=0), dtype=np.float64)
+        return np.full(len(s.COLOR_FEATURES), np.nan)
+    lab = cv2.cvtColor(frame[cy1:cy2, cx1:cx2], cv2.COLOR_BGR2LAB).reshape(-1, 3)
+    hist_l = np.histogram(lab[:, 0], s.HIST_BINS_L, (0, 256))[0]
+    # a and b sit near 128 for jerseys under arena light; 96-176 keeps the bins useful
+    hist_a = np.histogram(np.clip(lab[:, 1], 96, 175), s.HIST_BINS_AB, (96, 176))[0]
+    hist_b = np.histogram(np.clip(lab[:, 2], 96, 175), s.HIST_BINS_AB, (96, 176))[0]
+    return np.concatenate([hist_l, hist_a, hist_b]).astype(np.float64) / len(lab)
 
 
 def occluded_torsos(people: pd.DataFrame, max_overlap: float = 0.3) -> "pd.Series[bool]":

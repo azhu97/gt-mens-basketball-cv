@@ -103,3 +103,15 @@ def test_occluded_rows_do_not_vote_or_split() -> None:
     assert set(out[s.TRACK_ID]) == {1, 2}
     team = out.groupby(s.TRACK_ID)[s.TEAM].first()
     assert team[1] != team[2]
+
+
+def test_white_jersey_with_dark_skin_and_numbers_stays_apart_from_dark_jersey() -> None:
+    # Half white fabric, half dark skin/number pixels averages to mid-grey; a histogram
+    # keeps the bright share, so it clusters with plain white rather than plain maroon.
+    white = np.full((200, 100, 3), 235, dtype=np.uint8)
+    mixed = white.copy()
+    mixed[:, ::2] = (40, 50, 70)
+    maroon = np.full((200, 100, 3), (60, 40, 90), dtype=np.uint8)
+    box = np.array([0, 0, 100, 200], dtype=np.float32)
+    w, m, d = (torso_color_feature(img, box) for img in (white, mixed, maroon))
+    assert np.linalg.norm(m - w) < np.linalg.norm(m - d)

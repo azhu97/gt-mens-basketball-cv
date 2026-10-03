@@ -10,7 +10,11 @@ TRACK_ID = "track_id"
 LABEL = "label"  # "player" | "referee" | "ball"
 CONF = "conf"  # NaN for interpolated ball rows
 BOX = ["x1", "y1", "x2", "y2"]  # pixel coords
-COLOR_FEATURES = ["torso_l", "torso_a", "torso_b"]  # mean LAB jersey color (people only)
+# Upper-torso LAB histogram (people only): 16 L bins, then 8 a and 8 b bins, each block a
+# share of the crop's pixels. A mean color would average white fabric and dark skin or
+# numbers into mid-grey; the histogram keeps the white jersey's share of bright pixels.
+HIST_BINS_L, HIST_BINS_AB = 16, 8
+COLOR_FEATURES = [f"torso_hist_{i}" for i in range(HIST_BINS_L + 2 * HIST_BINS_AB)]
 TEAM = "team"  # 0/1 for players, -1 for unknown / referee / ball
 INTERPOLATED = "interpolated"  # True for ball rows filled between detections
 COURT = ["court_x", "court_y"]  # metres on the top-down court; only with a calibration

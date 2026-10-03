@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 from typer.testing import CliRunner
@@ -9,7 +10,15 @@ from cv_basketball.annotate import render_video
 from cv_basketball.cli import app
 from cv_basketball.court import NBA
 from cv_basketball.pipeline import PipelineConfig, postprocess, run
+from cv_basketball.teams import torso_color_feature
 from cv_basketball.video import video_info
+
+
+def _jersey(grey: int) -> dict[str, float]:
+    """Color feature columns for a uniformly grey jersey."""
+    frame = np.full((40, 20, 3), grey, dtype=np.uint8)
+    feat = torso_color_feature(frame, np.array([0, 0, 20, 40], dtype=np.float32))
+    return dict(zip(s.COLOR_FEATURES, map(float, feat), strict=True))
 
 
 def test_cli_help() -> None:
@@ -30,12 +39,10 @@ def test_referees_get_no_team() -> None:
             "y1": 0.0,
             "x2": 20.0 * tid + 10.0,
             "y2": 30.0,
-            "torso_l": lum,
-            "torso_a": 128.0,
-            "torso_b": 128.0,
+            **_jersey(grey),
         }
         for f in range(3)
-        for tid, label, lum in [(1, s.PLAYER, 30.0), (2, s.PLAYER, 220.0), (3, s.REFEREE, 120.0)]
+        for tid, label, grey in [(1, s.PLAYER, 30), (2, s.PLAYER, 220), (3, s.REFEREE, 120)]
     ]
     tracks = postprocess(pd.DataFrame(rows, columns=s.DETECTION_COLUMNS), PipelineConfig(), None)
     teams = tracks.groupby(s.TRACK_ID)[s.TEAM].first()
@@ -55,9 +62,7 @@ def test_postprocess_and_render_without_model(synthetic_video: Path, tmp_path: P
                 "y1": 60.0,
                 "x2": 60.0 + 10 * f,
                 "y2": 180.0,
-                "torso_l": 50.0,
-                "torso_a": 150.0,
-                "torso_b": 150.0,
+                **_jersey(50),
             }
             for f in range(10)
         ]
