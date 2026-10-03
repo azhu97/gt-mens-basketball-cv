@@ -22,6 +22,7 @@ from numpy.typing import NDArray
 from cv_basketball import schema as s
 from cv_basketball.annotate import render_court_video, render_video
 from cv_basketball.ball import interpolate_ball, track_ball
+from cv_basketball.ball2d import ground_ball
 from cv_basketball.camera import court_homographies, frame_motion
 from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
 from cv_basketball.homography import (
@@ -62,6 +63,7 @@ class PipelineConfig:
     # court-path smoothing windows in frames (see paths.py); 1 turns a filter off
     path_median: int = 5
     path_window: int = 15
+    ground_ball: bool = True  # ball at its holder's feet / between holders (ball2d.py)
 
 
 def detect_and_track(video: Path, cfg: PipelineConfig) -> tuple[pd.DataFrame, NDArray[np.float64]]:
@@ -158,6 +160,7 @@ def postprocess(
     if homographies is not None:
         tracks = add_court_coords(tracks, dict(enumerate(homographies)))
         tracks = smooth_paths(tracks, cfg.path_median, cfg.path_window)
+        tracks = ground_ball(tracks) if cfg.ground_ball else tracks
     return tracks
 
 

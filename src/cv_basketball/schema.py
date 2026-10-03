@@ -27,7 +27,10 @@ TRACKER_ID = "tracker_id"
 TEAM_VOTE = "team_vote"
 MAX_IOU = "max_iou"  # largest IoU of this box with another person's box in the frame
 INTERPOLATED = "interpolated"  # True for ball rows filled between detections
-COURT = ["court_x", "court_y"]  # metres on the top-down court; only with a calibration
+# metres on the top-down court; only with a calibration. Players: their (smoothed) feet.
+# Ball: its holder's feet, or a straight line between holders (see ball2d.py).
+COURT = ["court_x", "court_y"]
+OWNER = "owner"  # ball rows: track ID of the player holding it (-1 none); -1 elsewhere
 
 PLAYER = "player"
 REFEREE = "referee"  # only from fine-tuned weights with a referee class
