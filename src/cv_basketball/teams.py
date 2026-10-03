@@ -1,4 +1,4 @@
-"""Team assignment by clustering jersey colors, then majority-voting per track."""
+"""Team assignment: cluster jersey colors, split tracks at team changes, vote per track."""
 
 import cv2
 import numpy as np
@@ -7,6 +7,7 @@ from numpy.typing import NDArray
 from sklearn.cluster import KMeans
 
 from cv_basketball import schema as s
+from cv_basketball.segments import split_on_change
 
 UNKNOWN_TEAM = -1
 _MAX_FIT_SAMPLES = 5000
@@ -31,17 +32,17 @@ def torso_color_feature(frame: NDArray[np.uint8], xyxy: NDArray[np.float32]) -> 
     return np.asarray(lab.reshape(-1, 3).mean(axis=0), dtype=np.float64)
 
 
-def assign_teams(players: pd.DataFrame, n_teams: int = 2, seed: int = 0) -> "pd.Series[int]":
-    """Return a team label per row of ``players``, constant within each track ID.
+def cluster_jerseys(players: pd.DataFrame, n_teams: int = 2, seed: int = 0) -> "pd.Series[int]":
+    """Return a jersey-color cluster per row of ``players`` (``UNKNOWN_TEAM`` if unclusterable).
 
-    Referees and bench players are not handled yet and will be forced into a team.
+    Rows without a track ID or a color feature are not clustered.
     """
-    team = pd.Series(UNKNOWN_TEAM, index=players.index, dtype="int64")
+    clusters = pd.Series(UNKNOWN_TEAM, index=players.index, dtype="int64")
     feats = players[s.COLOR_FEATURES].to_numpy(dtype=np.float64)
     valid = (players[s.TRACK_ID].to_numpy() >= 0) & ~np.isnan(feats).any(axis=1)
     valid_feats = feats[valid]
     if len(np.unique(valid_feats, axis=0)) < n_teams:
-        return team
+        return clusters
 
     rng = np.random.default_rng(seed)
     fit_feats = (
@@ -50,9 +51,28 @@ def assign_teams(players: pd.DataFrame, n_teams: int = 2, seed: int = 0) -> "pd.
         else valid_feats
     )
     km = KMeans(n_clusters=n_teams, n_init=10, random_state=seed).fit(fit_feats)
-    labels = pd.Series(km.predict(valid_feats), index=players.index[valid])
+    clusters.loc[valid] = km.predict(valid_feats)
+    return clusters
 
-    track_ids = players.loc[valid, s.TRACK_ID]
-    per_track = labels.groupby(track_ids).agg(lambda v: int(v.mode().iloc[0]))
-    team.loc[valid] = track_ids.map(per_track).astype("int64")
+
+def vote_teams(track_ids: "pd.Series[int]", clusters: "pd.Series[int]") -> "pd.Series[int]":
+    """Majority-vote ``clusters`` within each track; rows without a track ID stay unknown."""
+    team = pd.Series(UNKNOWN_TEAM, index=track_ids.index, dtype="int64")
+    known = clusters != UNKNOWN_TEAM
+    per_track = clusters[known].groupby(track_ids[known]).agg(lambda v: int(v.mode().iloc[0]))
+    tracked = track_ids >= 0
+    team.loc[tracked] = track_ids[tracked].map(per_track).fillna(UNKNOWN_TEAM).astype("int64")
     return team
+
+
+def assign_teams(
+    players: pd.DataFrame, next_track_id: int, n_teams: int = 2, seed: int = 0
+) -> pd.DataFrame:
+    """Return ``track_id`` (split at team changes) and ``team`` for each row of ``players``.
+
+    Team is constant within each returned track ID. Referees and bench players are not
+    handled and will be forced into a team.
+    """
+    clusters = cluster_jerseys(players, n_teams, seed)
+    track_ids = split_on_change(players, clusters, next_track_id, n_teams)
+    return pd.DataFrame({s.TRACK_ID: track_ids, s.TEAM: vote_teams(track_ids, clusters)})

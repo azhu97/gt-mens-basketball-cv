@@ -4,7 +4,9 @@ Every stage reads/writes this single DataFrame; it is also the exported file for
 """
 
 FRAME = "frame"
-TRACK_ID = "track_id"  # tracker ID for players; -1 for the ball (single object, ID unused)
+# Tracker ID for people, split into fresh IDs where a track changes label or team (a
+# likely ID swap; see segments.py); -1 for the ball (single object, ID unused)
+TRACK_ID = "track_id"
 LABEL = "label"  # "player" | "referee" | "ball"
 CONF = "conf"  # NaN for interpolated ball rows
 BOX = ["x1", "y1", "x2", "y2"]  # pixel coords

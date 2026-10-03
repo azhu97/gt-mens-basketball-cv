@@ -2,9 +2,9 @@
 
 Pass 1 streams the video through YOLO (tracker for players, plain detection for the
 ball), recording boxes and jersey colors (no frames kept in memory). Post-processing
-(ball cleanup, team clustering, court
-projection) then works purely on the tracks DataFrame. Pass 2 re-reads the video to
-render the annotated output.
+(ball cleanup, tracks split at player/referee and team changes, per-track votes on
+both, court projection) then works purely on the tracks DataFrame. Pass 2
+re-reads the video to render the annotated output.
 """
 
 from dataclasses import dataclass
@@ -17,6 +17,7 @@ from cv_basketball import schema as s
 from cv_basketball.annotate import render_video
 from cv_basketball.ball import interpolate_ball, select_ball
 from cv_basketball.homography import Calibration, add_court_coords
+from cv_basketball.labels import vote_person_labels
 from cv_basketball.teams import UNKNOWN_TEAM, assign_teams, torso_color_feature
 from cv_basketball.tracking import DEFAULT_TRACKER, track_video
 
@@ -67,11 +68,16 @@ def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
 def postprocess(
     raw: pd.DataFrame, cfg: PipelineConfig, calibration: Calibration | None
 ) -> pd.DataFrame:
-    players = raw[raw[s.LABEL] == s.PLAYER].copy()
-    players[s.TEAM] = assign_teams(players)
+    people = raw[raw[s.LABEL].isin([s.PLAYER, s.REFEREE])].copy()
+    next_track_id = int(people[s.TRACK_ID].max()) + 1 if len(people) else 0
+    people[[s.TRACK_ID, s.LABEL]] = vote_person_labels(people, next_track_id)
+
+    players = people[people[s.LABEL] == s.PLAYER].copy()
+    next_track_id = int(people[s.TRACK_ID].max()) + 1 if len(people) else 0
+    players[[s.TRACK_ID, s.TEAM]] = assign_teams(players, next_track_id)
     players[s.INTERPOLATED] = False
 
-    referees = raw[raw[s.LABEL] == s.REFEREE].copy()
+    referees = people[people[s.LABEL] == s.REFEREE].copy()
     referees[s.TEAM] = UNKNOWN_TEAM
     referees[s.INTERPOLATED] = False
 
