@@ -1,10 +1,10 @@
 """End-to-end offline pipeline.
 
 Pass 1 streams the video through YOLO (tracker for players, plain detection for the
-ball), recording boxes and jersey colors (no frames kept in memory). Post-processing
-(ball cleanup, tracks split at player/referee and team changes, per-track votes on
-both, court projection) then works purely on the tracks DataFrame. Pass 2
-re-reads the video to render the annotated output.
+ball), recording boxes, jersey colors and distance from the court floor (no frames kept
+in memory). Post-processing (ball cleanup, off-court people dropped, tracks split at
+player/referee and team changes, per-track votes on both, court projection) then works
+purely on the tracks DataFrame. Pass 2 re-reads the video to render the annotated output.
 """
 
 from dataclasses import dataclass
@@ -16,6 +16,7 @@ import pandas as pd
 from cv_basketball import schema as s
 from cv_basketball.annotate import render_video
 from cv_basketball.ball import interpolate_ball, select_ball
+from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
 from cv_basketball.homography import Calibration, add_court_coords
 from cv_basketball.labels import vote_person_labels
 from cv_basketball.teams import (
@@ -53,6 +54,7 @@ def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
         ball_conf=cfg.ball_conf,
         ball_imgsz=cfg.ball_imgsz,
     ):
+        hull = floor_hull(fd.image)
         for box, tid, label, conf in zip(fd.xyxy, fd.track_ids, fd.labels, fd.confs, strict=True):
             base = {
                 s.FRAME: fd.frame_idx,
@@ -63,6 +65,7 @@ def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
                 color = torso_color_feature(fd.image, box)
                 rows.append(
                     {**base, s.TRACK_ID: int(tid), s.LABEL: label}
+                    | {s.FLOOR_DIST: floor_distance(hull, box)}
                     | dict(zip(s.COLOR_FEATURES, map(float, color), strict=True))
                 )
             elif label == s.BALL and conf >= cfg.ball_conf:
@@ -73,7 +76,8 @@ def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
 def postprocess(
     raw: pd.DataFrame, cfg: PipelineConfig, calibration: Calibration | None
 ) -> pd.DataFrame:
-    people = raw[raw[s.LABEL].isin([s.PLAYER, s.REFEREE])].copy()
+    people = raw[raw[s.LABEL].isin([s.PLAYER, s.REFEREE])]
+    people = people[on_court_tracks(people)].copy()
     next_track_id = int(people[s.TRACK_ID].max()) + 1 if len(people) else 0
     people[[s.TRACK_ID, s.LABEL]] = vote_person_labels(people, next_track_id)
 
