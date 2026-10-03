@@ -80,7 +80,7 @@ def test_postprocess_and_render_without_model(synthetic_video: Path, tmp_path: P
         ],
         columns=s.DETECTION_COLUMNS,
     )
-    tracks = postprocess(raw, PipelineConfig(), calibration=None)
+    tracks = postprocess(raw, PipelineConfig(), homographies=None)
     assert set(tracks[s.LABEL]) == {s.PLAYER, s.BALL}
     assert {s.TEAM, s.INTERPOLATED} <= set(tracks.columns)
 

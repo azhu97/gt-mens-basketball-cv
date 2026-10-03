@@ -1,4 +1,9 @@
-"""Image-to-court homography from a manual calibration file."""
+"""Image-to-court homography from manually clicked keyframes.
+
+A calibration file holds one or more keyframes, each pairing image pixels in one frame
+with court metres. With a single keyframe and no camera motion the camera is assumed
+static; ``camera.court_homographies`` carries keyframes to every frame of a moving one.
+"""
 
 import json
 from dataclasses import dataclass
@@ -17,14 +22,12 @@ MIN_POINTS = 4
 
 @dataclass
 class Calibration:
-    """Corresponding image pixels and court metres, plus which court spec they refer to.
-
-    Assumes a static camera: one calibration applies to every frame of the video.
-    """
+    """Corresponding image pixels and court metres in one frame, plus the court spec."""
 
     court: str
     image_points: list[tuple[float, float]]
     court_points: list[tuple[float, float]]
+    frame: int = 0
 
     @property
     def spec(self) -> CourtSpec:
@@ -41,27 +44,37 @@ class Calibration:
             raise ValueError("Homography estimation failed (degenerate / collinear points?)")
         return np.asarray(H, dtype=np.float64)
 
-    def save(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(
-                {
-                    "court": self.court,
-                    "image_points": self.image_points,
-                    "court_points": self.court_points,
-                },
-                indent=2,
-            )
-        )
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "frame": self.frame,
+            "image_points": self.image_points,
+            "court_points": self.court_points,
+        }
 
-    @classmethod
-    def load(cls, path: Path) -> "Calibration":
-        data = json.loads(path.read_text())
-        return cls(
+
+def save_calibrations(path: Path, keyframes: list[Calibration]) -> None:
+    """Write keyframes (all for the same court spec) to a JSON file."""
+    if len({k.court for k in keyframes}) != 1:
+        raise ValueError("All keyframes must use the same court spec")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {"court": keyframes[0].court, "keyframes": [k.to_dict() for k in keyframes]}
+    path.write_text(json.dumps(data, indent=2))
+
+
+def load_calibrations(path: Path) -> list[Calibration]:
+    """Read keyframes, sorted by frame. A file without ``keyframes`` is one at frame 0."""
+    data = json.loads(path.read_text())
+    entries = data.get("keyframes", [data])
+    keyframes = [
+        Calibration(
             court=data["court"],
-            image_points=[tuple(p) for p in data["image_points"]],
-            court_points=[tuple(p) for p in data["court_points"]],
+            image_points=[(float(x), float(y)) for x, y in e["image_points"]],
+            court_points=[(float(x), float(y)) for x, y in e["court_points"]],
+            frame=int(e.get("frame", 0)),
         )
+        for e in entries
+    ]
+    return sorted(keyframes, key=lambda k: k.frame)
 
 
 def project(H: NDArray[np.float64], points: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -83,6 +96,22 @@ def ground_points(tracks: pd.DataFrame) -> NDArray[np.float64]:
     return np.stack([x, y], axis=1)
 
 
-def add_court_coords(tracks: pd.DataFrame, H: NDArray[np.float64]) -> pd.DataFrame:
-    court_xy = project(H, ground_points(tracks))
+def add_court_coords(
+    tracks: pd.DataFrame, image_to_court: NDArray[np.float64] | dict[int, NDArray[np.float64]]
+) -> pd.DataFrame:
+    """Project each row's ground point to court metres.
+
+    ``image_to_court`` is one homography for a static camera, or one per frame index;
+    rows in frames without one get NaN.
+    """
+    if isinstance(image_to_court, np.ndarray):
+        court_xy = project(image_to_court, ground_points(tracks))
+    else:
+        court_xy = np.full((len(tracks), 2), np.nan)
+        frames = tracks[s.FRAME].to_numpy()
+        ground = ground_points(tracks)
+        for frame in np.unique(frames):
+            if int(frame) in image_to_court:
+                rows = frames == frame
+                court_xy[rows] = project(image_to_court[int(frame)], ground[rows])
     return tracks.assign(**{s.COURT[0]: court_xy[:, 0], s.COURT[1]: court_xy[:, 1]})

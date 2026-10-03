@@ -6,9 +6,10 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 from cv_basketball import schema as s
-from cv_basketball.court import CourtSpec, court_to_pixel, draw_court
+from cv_basketball.court import CourtSpec, court_lines, court_to_pixel, draw_court
 from cv_basketball.video import Frame, iter_frames, open_writer, video_info
 
 TEAM_COLORS: dict[int, tuple[int, int, int]] = {  # BGR
@@ -19,6 +20,7 @@ TEAM_COLORS: dict[int, tuple[int, int, int]] = {  # BGR
 BALL_COLOR = (0, 220, 255)
 TRAIL_LEN = 20
 MINIMAP_PX_PER_M = 10.0
+COURT_LINE_COLOR = (255, 0, 255)
 
 
 def _draw_minimap(frame: Frame, rows: pd.DataFrame, court_img: Frame) -> None:
@@ -38,23 +40,41 @@ def _draw_minimap(frame: Frame, rows: pd.DataFrame, court_img: Frame) -> None:
         frame[10 : 10 + mh, fw - mw - 10 : fw - 10] = mini
 
 
+def _draw_court_lines(
+    frame: Frame, lines: list[NDArray[np.float64]], image_to_court: NDArray[np.float64]
+) -> None:
+    """Overlay the court model as the calibration sees it, to check the registration."""
+    court_to_image = np.linalg.inv(image_to_court)
+    for line in lines:
+        pts = cv2.perspectiveTransform(line.reshape(-1, 1, 2), court_to_image)
+        cv2.polylines(frame, [pts.astype(np.int32)], False, COURT_LINE_COLOR, 1)
+
+
 def render_video(
-    video: Path, tracks: pd.DataFrame, out_path: Path, court: CourtSpec | None = None
+    video: Path,
+    tracks: pd.DataFrame,
+    out_path: Path,
+    court: CourtSpec | None = None,
+    homographies: NDArray[np.float64] | None = None,
 ) -> None:
     """Draw player boxes (team-colored, with IDs), the ball and its trail, and a minimap.
 
     The minimap is drawn only when ``court`` is given and tracks have court coordinates.
+    With per-frame image->court ``homographies`` too, the court lines are overlaid.
     """
     info = video_info(video)
     writer = open_writer(out_path, info)
     by_frame = dict(tuple(tracks.groupby(s.FRAME)))
     trail: deque[tuple[int, int]] = deque(maxlen=TRAIL_LEN)
     court_img = draw_court(court, MINIMAP_PX_PER_M) if court is not None else None
+    lines = court_lines(court) if court is not None else []
     empty = tracks.iloc[0:0]
 
     try:
         for idx, frame in iter_frames(video):
             rows = by_frame.get(idx, empty)
+            if lines and homographies is not None and idx < len(homographies):
+                _draw_court_lines(frame, lines, homographies[idx])
             for r in rows.itertuples(index=False):
                 x1, y1, x2, y2 = (int(getattr(r, c)) for c in s.BOX)
                 if r.label == s.BALL:

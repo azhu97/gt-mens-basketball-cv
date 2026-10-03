@@ -4,20 +4,26 @@ Pass 1 streams the video through YOLO (tracker for players, plain detection for 
 ball), recording boxes, jersey colors and distance from the court floor (no frames kept
 in memory). Post-processing (ball path through time, off-court people dropped, tracks split at
 player/referee and team changes, per-track votes on both, court projection) then works
-purely on the tracks DataFrame. Pass 2 re-reads the video to render the annotated output.
+purely on the tracks DataFrame. Pass 1 also measures camera motion, which carries
+hand-calibrated keyframes to every frame for court coordinates. Pass 2 re-reads the
+video to render the annotated output.
 """
 
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import cv2
+import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 from cv_basketball import schema as s
 from cv_basketball.annotate import render_video
 from cv_basketball.ball import interpolate_ball, track_ball
+from cv_basketball.camera import court_homographies, frame_motion
 from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
-from cv_basketball.homography import Calibration, add_court_coords
+from cv_basketball.homography import Calibration, add_court_coords, load_calibrations
 from cv_basketball.labels import vote_person_labels
 from cv_basketball.teams import (
     UNKNOWN_TEAM,
@@ -42,9 +48,15 @@ class PipelineConfig:
     render: bool = True
 
 
-def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
-    """Pass 1: raw per-detection rows (see ``schema.DETECTION_COLUMNS``)."""
+def detect_and_track(video: Path, cfg: PipelineConfig) -> tuple[pd.DataFrame, NDArray[np.float64]]:
+    """Pass 1: raw per-detection rows (see ``schema.DETECTION_COLUMNS``) and camera motion.
+
+    The motion array has one homography per frame, mapping the previous frame's pixels to
+    this frame's (identity for frame 0); see ``camera.frame_motion``.
+    """
     rows: list[dict[str, Any]] = []
+    motions: list[NDArray[np.float64]] = []
+    prev_gray: NDArray[np.uint8] | None = None
     for fd in track_video(
         video,
         model_name=cfg.model,
@@ -54,6 +66,11 @@ def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
         ball_conf=cfg.ball_conf,
         ball_imgsz=cfg.ball_imgsz,
     ):
+        gray = np.asarray(cv2.cvtColor(fd.image, cv2.COLOR_BGR2GRAY), dtype=np.uint8)
+        people_boxes = fd.xyxy[[label != s.BALL for label in fd.labels]]
+        motion = np.eye(3) if prev_gray is None else frame_motion(prev_gray, gray, people_boxes)
+        motions.append(motion)
+        prev_gray = gray
         hull = floor_hull(fd.image)
         for box, tid, label, conf in zip(fd.xyxy, fd.track_ids, fd.labels, fd.confs, strict=True):
             base = {
@@ -70,12 +87,24 @@ def detect_and_track(video: Path, cfg: PipelineConfig) -> pd.DataFrame:
                 )
             elif label == s.BALL and conf >= cfg.ball_conf:
                 rows.append({**base, s.TRACK_ID: -1, s.LABEL: s.BALL})
-    return pd.DataFrame(rows, columns=s.DETECTION_COLUMNS)
+    return pd.DataFrame(rows, columns=s.DETECTION_COLUMNS), np.asarray(motions).reshape(-1, 3, 3)
+
+
+def image_to_court(
+    keyframes: list[Calibration], motions: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """Per-frame image->court homographies: keyframes carried through the camera motion."""
+    return court_homographies(motions, keyframes)
 
 
 def postprocess(
-    raw: pd.DataFrame, cfg: PipelineConfig, calibration: Calibration | None
+    raw: pd.DataFrame, cfg: PipelineConfig, homographies: NDArray[np.float64] | None
 ) -> pd.DataFrame:
+    """Clean up pass-1 rows into the tracks table.
+
+    ``homographies`` holds one image->court homography per frame (see ``image_to_court``);
+    without it there are no court coordinates.
+    """
     people = raw[raw[s.LABEL].isin([s.PLAYER, s.REFEREE])]
     people = people[on_court_tracks(people)].copy()
     next_track_id = int(people[s.TRACK_ID].max()) + 1 if len(people) else 0
@@ -99,21 +128,24 @@ def postprocess(
         .sort_values([s.FRAME, s.LABEL, s.TRACK_ID])
         .reset_index(drop=True)
     )
-    if calibration is not None:
-        tracks = add_court_coords(tracks, calibration.homography())
+    if homographies is not None:
+        tracks = add_court_coords(tracks, dict(enumerate(homographies)))
     return tracks
 
 
 def run(video: Path, out_dir: Path, cfg: PipelineConfig) -> pd.DataFrame:
     """Run the full pipeline, writing ``tracks.parquet`` (+ csv) and ``annotated.mp4``."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    calibration = Calibration.load(cfg.calibration) if cfg.calibration else None
+    keyframes = load_calibrations(cfg.calibration) if cfg.calibration else None
 
-    tracks = postprocess(detect_and_track(video, cfg), cfg, calibration)
+    raw, motions = detect_and_track(video, cfg)
+    np.save(out_dir / "camera_motion.npy", motions)
+    homographies = image_to_court(keyframes, motions) if keyframes else None
+    tracks = postprocess(raw, cfg, homographies)
     tracks.to_parquet(out_dir / "tracks.parquet", index=False)
     if cfg.export_csv:
         tracks.to_csv(out_dir / "tracks.csv", index=False)
     if cfg.render:
-        court = calibration.spec if calibration else None
-        render_video(video, tracks, out_dir / "annotated.mp4", court)
+        court = keyframes[0].spec if keyframes else None
+        render_video(video, tracks, out_dir / "annotated.mp4", court, homographies)
     return tracks
