@@ -83,7 +83,11 @@ def drop_blips(players: pd.DataFrame, min_rows: int = 10) -> "pd.Series[bool]":
 
 
 def grey_out_sixth_players(
-    players: pd.DataFrame, max_per_team: int = 5, window: int = 30
+    players: pd.DataFrame,
+    max_per_team: int = 5,
+    window: int = 30,
+    min_room_share: float = 0.8,
+    passes: int = 10,
 ) -> "pd.Series[int]":
     """Team per row with the weakest extra players in over-full frames set to unknown.
 
@@ -92,12 +96,28 @@ def grey_out_sixth_players(
     stretches (gaps up to ``window`` frames); within a stretch, tracks are ranked by
     their support, meaning clean votes for the team minus votes against it, from
     ``window`` frames before the stretch to ``window`` after. In each crowded frame,
-    the lowest-ranked tracks (as many as the stretch's worst excess) lose their team for
-    the whole stretch, so the same player is changed throughout. If the other team has
-    room for them in every frame of the stretch, they join it (typically a player
-    hidden behind an opponent who took the opponent's colour); otherwise they turn grey,
-    which is better than the wrong colour.
+    the lowest-ranked track loses its team for the whole stretch, so the same player is
+    changed throughout. Extras are handled one at a time (the counts are redone before
+    the next), so a team two over doesn't need room for both at once. If the other team has
+    room for them in at least ``min_room_share`` of the frames they are in, they join it
+    (typically a player hidden behind an opponent who took the opponent's colour, or
+    whose ID the tracker handed to them); otherwise they turn grey, which is better than
+    the wrong colour. A move can leave the other team over-full in its few remaining
+    frames, so the whole check repeats, up to ``passes`` times.
     """
+    team = players[s.TEAM].copy()
+    for _ in range(passes):
+        before = team.copy()
+        team = _fix_crowded(players.assign(**{s.TEAM: team}), max_per_team, window, min_room_share)
+        if team.equals(before):
+            break
+    return team
+
+
+def _fix_crowded(
+    players: pd.DataFrame, max_per_team: int, window: int, min_room_share: float
+) -> "pd.Series[int]":
+    """One pass of ``grey_out_sixth_players``."""
     team = players[s.TEAM].copy()
     on_team = players[team.isin([0, 1])]
     sizes = on_team.groupby([s.FRAME, s.TEAM])[s.TRACK_ID].transform("size")
@@ -115,17 +135,19 @@ def grey_out_sixth_players(
             v = votes.loc[near.index]
             score = (v == tm).astype(int) - ((v != tm) & v.isin([0, 1])).astype(int)
             support = score.groupby(near[s.TRACK_ID]).sum()
-            # the weakest tracks among the crowded frames, grey for the whole stretch
+            # the weakest track among the crowded frames, changed for the whole stretch
             in_stretch = rows[rows[s.FRAME].between(lo, hi)]
-            extra = int(in_stretch.groupby(s.FRAME).size().max()) - max_per_team
+            extra = 1  # one per pass; the next pass recounts
             present = support.loc[in_stretch[s.TRACK_ID].unique()].sort_values(kind="stable")
             weakest = present.index[:extra]
             span = players[s.FRAME].between(lo, hi) & players[s.TRACK_ID].isin(weakest)
-            # if the other team is short throughout, that's where the extras belong
+            # if the other team has room nearly throughout, that's where the extras belong
             other = 1 - tm
             stretch_frames = players[players[s.FRAME].between(lo, hi)]
             other_size = (stretch_frames[s.TEAM] == other).groupby(stretch_frames[s.FRAME]).sum()
-            fits = int(other_size.max()) + extra <= max_per_team
+            moved_frames = players.loc[span, s.FRAME].unique()
+            room = other_size.reindex(moved_frames, fill_value=0) + extra <= max_per_team
+            fits = bool(room.mean() >= min_room_share) if len(room) else False
             team[span & (team == tm)] = other if fits else UNKNOWN_TEAM
     return team
 

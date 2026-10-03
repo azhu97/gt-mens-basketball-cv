@@ -101,3 +101,17 @@ def test_grey_player_stays_grey_when_both_teams_are_full_or_it_looks_like_a_ref(
     # one short, but its votes say referee (2)
     ref = _court([*full[:9], (10, -1, 2)])
     assert (fill_to_five(ref)[ref[s.TRACK_ID] == 10] == -1).all()
+
+
+def test_two_extras_are_moved_one_at_a_time() -> None:
+    from cv_basketball.smoothing import grey_out_sixth_players
+
+    # team 0 shows 7: five solid, plus track 9 (votes say team 1) and track 10 (no
+    # clean votes). Team 1 has 4, so it has room for one more but not two.
+    roster = (
+        [(i, 0, 0) for i in range(5)] + [(i, 1, 1) for i in range(5, 9)] + [(9, 0, 1), (10, 0, -1)]
+    )
+    players = _court(roster)
+    out = grey_out_sixth_players(players)
+    assert (out[players[s.TRACK_ID] == 9] == 1).all()  # the hidden opponent moves over
+    assert (out[players[s.TRACK_ID] == 10] == -1).all()  # no room left: grey
