@@ -1,5 +1,6 @@
 """`cvb` command-line interface."""
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
@@ -9,6 +10,44 @@ from cv_basketball.court import COURTS
 
 app = typer.Typer(no_args_is_help=True, help="Basketball video analysis with YOLO.")
 
+DEVICES = ["mps", "cuda:0", "cpu"]
+TRACKERS = ["bytetrack.yaml", "botsort.yaml"]  # ultralytics built-ins
+
+
+# Shell completion for option values (flag names come from Typer); install with
+# `cvb --install-completion`. These run on every <TAB>, so they only glob nearby files.
+
+
+def _complete_paths(incomplete: str, suffix: str) -> list[str]:
+    """Files ending in ``suffix`` (and directories to descend into) matching ``incomplete``."""
+    matches = []
+    for p in sorted(Path().glob(f"{incomplete}*")):
+        if p.is_dir() and not p.name.startswith("."):
+            matches.append(f"{p}/")
+        elif p.name.endswith(suffix):
+            matches.append(str(p))
+    return matches
+
+
+def _complete_model(incomplete: str) -> list[str]:
+    """Trained weights under runs/train first, then any ``.pt`` path."""
+    trained = [str(p) for p in sorted(Path("runs/train").glob("*/weights/best.pt"))]
+    found = trained + [p for p in _complete_paths(incomplete, ".pt") if p not in trained]
+    return [p for p in found if p.startswith(incomplete)]
+
+
+def _complete_calibration(ctx: typer.Context, incomplete: str) -> list[str]:
+    """The calibration saved next to the video being tracked, then any calibration JSON."""
+    # during completion the positional video is often left unparsed in ctx.args
+    video = ctx.params.get("video") or next(iter(ctx.args), None)
+    sibling = [str(Path(video).with_suffix(".calibration.json"))] if video else []
+    sibling = [p for p in sibling if Path(p).exists() and p.startswith(incomplete)]
+    return sibling + [p for p in _complete_paths(incomplete, ".json") if p not in sibling]
+
+
+def _complete_from(choices: list[str]) -> Callable[[str], list[str]]:
+    return lambda incomplete: [c for c in choices if c.startswith(incomplete)]
+
 
 @app.command()
 def track(
@@ -16,14 +55,30 @@ def track(
     out: Annotated[
         Path, typer.Option(help="Output root; results go to <out>/<video stem>/")
     ] = Path("runs"),
-    model: Annotated[str, typer.Option(help="Ultralytics weights name or path")] = "yolo11m.pt",
-    device: Annotated[str | None, typer.Option(help="cuda:0 / mps / cpu (auto if omitted)")] = None,
+    model: Annotated[
+        str,
+        typer.Option(help="Ultralytics weights name or path", autocompletion=_complete_model),
+    ] = "yolo11m.pt",
+    device: Annotated[
+        str | None,
+        typer.Option(
+            help="cuda:0 / mps / cpu (auto if omitted)", autocompletion=_complete_from(DEVICES)
+        ),
+    ] = None,
     tracker: Annotated[
         str | None,
-        typer.Option(help="Tracker YAML (default: bundled basketball BoT-SORT; or bytetrack.yaml)"),
+        typer.Option(
+            help="Tracker YAML (default: bundled basketball BoT-SORT; or bytetrack.yaml)",
+            autocompletion=_complete_from(TRACKERS),
+        ),
     ] = None,
     calibration: Annotated[
-        Path | None, typer.Option(exists=True, help="Calibration JSON from `cvb calibrate`")
+        Path | None,
+        typer.Option(
+            exists=True,
+            help="Calibration JSON from `cvb calibrate`",
+            autocompletion=_complete_calibration,
+        ),
     ] = None,
     person_conf: float = 0.4,
     ball_conf: float = 0.1,
@@ -62,7 +117,12 @@ def track(
 def calibrate(
     video: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
     out: Annotated[Path | None, typer.Option(help="Defaults to <video>.calibration.json")] = None,
-    court: Annotated[str, typer.Option(help=f"One of: {', '.join(COURTS)}")] = "nba",
+    court: Annotated[
+        str,
+        typer.Option(
+            help=f"One of: {', '.join(COURTS)}", autocompletion=_complete_from(list(COURTS))
+        ),
+    ] = "nba",
     frame: Annotated[int, typer.Option(help="Frame index to calibrate on")] = 0,
 ) -> None:
     """Click court landmarks on a frame to build an image-to-court homography."""
@@ -111,8 +171,15 @@ def dataset_prepare(
 @app.command()
 def train(
     data: Annotated[Path, typer.Argument(exists=True, dir_okay=False, help="data.yaml")],
-    model: Annotated[str, typer.Option(help="Starting weights")] = "yolo11m.pt",
-    device: Annotated[str | None, typer.Option(help="cuda:0 / mps / cpu (auto if omitted)")] = None,
+    model: Annotated[
+        str, typer.Option(help="Starting weights", autocompletion=_complete_model)
+    ] = "yolo11m.pt",
+    device: Annotated[
+        str | None,
+        typer.Option(
+            help="cuda:0 / mps / cpu (auto if omitted)", autocompletion=_complete_from(DEVICES)
+        ),
+    ] = None,
     out: Annotated[Path, typer.Option(help="Training runs go to <out>/<name>/")] = Path(
         "runs/train"
     ),

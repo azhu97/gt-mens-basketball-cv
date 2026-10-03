@@ -7,7 +7,7 @@ from typer.testing import CliRunner
 
 from cv_basketball import schema as s
 from cv_basketball.annotate import render_court_video, render_video
-from cv_basketball.cli import app
+from cv_basketball.cli import _complete_model, app
 from cv_basketball.court import NBA
 from cv_basketball.pipeline import PipelineConfig, postprocess, run
 from cv_basketball.teams import torso_color_feature
@@ -113,3 +113,33 @@ def test_full_pipeline_with_yolo(synthetic_video: Path, tmp_path: Path) -> None:
     assert (tmp_path / "tracks.parquet").exists()
     assert (tmp_path / "annotated.mp4").exists()
     assert set(s.DETECTION_COLUMNS) <= set(tracks.columns)
+
+
+def test_model_completion_offers_trained_weights_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "runs/train/basketball/weights").mkdir(parents=True)
+    (tmp_path / "runs/train/basketball/weights/best.pt").touch()
+    (tmp_path / "yolo11m.pt").touch()
+    (tmp_path / "notes.txt").touch()
+    assert _complete_model("") == ["runs/train/basketball/weights/best.pt", "runs/", "yolo11m.pt"]
+    assert _complete_model("y") == ["yolo11m.pt"]
+
+
+def test_calibration_completion_offers_the_videos_own_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "game.calibration.json").touch()
+    (tmp_path / "other.calibration.json").touch()
+    result = CliRunner().invoke(
+        app,
+        env={
+            "_CVB_COMPLETE": "complete_bash",
+            "COMP_WORDS": "cvb track game.mp4 --calibration ",
+            "COMP_CWORD": "4",
+        },
+        prog_name="cvb",
+    )
+    assert result.stdout.split()[0].endswith("game.calibration.json")

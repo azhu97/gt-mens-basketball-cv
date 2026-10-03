@@ -9,6 +9,13 @@ uv sync
 uv run pre-commit install
 ```
 
+Optional tab completion for `cvb` flags and values (`--model` suggests your trained `best.pt`, `--calibration` the video's own calibration file, `--device mps`...). It completes the `cvb` command, not `uv run cvb`, so use it with the venv active:
+
+```bash
+source .venv/bin/activate
+cvb --install-completion   # once; restart the shell
+```
+
 Pretrained COCO weights (`yolo11m.pt` by default) download automatically on first run. The device is chosen automatically in the order CUDA, then Apple MPS, then CPU. Use `--device` to override it.
 
 ## Usage
