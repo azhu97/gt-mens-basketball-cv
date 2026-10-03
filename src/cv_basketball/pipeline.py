@@ -18,7 +18,12 @@ from cv_basketball.annotate import render_video
 from cv_basketball.ball import interpolate_ball, select_ball
 from cv_basketball.homography import Calibration, add_court_coords
 from cv_basketball.labels import vote_person_labels
-from cv_basketball.teams import UNKNOWN_TEAM, assign_teams, torso_color_feature
+from cv_basketball.teams import (
+    UNKNOWN_TEAM,
+    assign_teams,
+    occluded_torsos,
+    torso_color_feature,
+)
 from cv_basketball.tracking import DEFAULT_TRACKER, track_video
 
 
@@ -74,7 +79,8 @@ def postprocess(
 
     players = people[people[s.LABEL] == s.PLAYER].copy()
     next_track_id = int(people[s.TRACK_ID].max()) + 1 if len(people) else 0
-    players[[s.TRACK_ID, s.TEAM]] = assign_teams(players, next_track_id)
+    occluded = occluded_torsos(people)
+    players[[s.TRACK_ID, s.TEAM]] = assign_teams(players, next_track_id, occluded)
     players[s.INTERPOLATED] = False
 
     referees = people[people[s.LABEL] == s.REFEREE].copy()

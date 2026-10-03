@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from cv_basketball import schema as s
-from cv_basketball.teams import UNKNOWN_TEAM, assign_teams, torso_color_feature
+from cv_basketball.teams import UNKNOWN_TEAM, assign_teams, occluded_torsos, torso_color_feature
 
 RED, BLUE = (0, 0, 220), (220, 0, 0)
 
@@ -76,3 +76,30 @@ def test_brief_color_flicker_does_not_split() -> None:
     out = assign_teams(players, next_track_id=3)
     assert set(out[s.TRACK_ID]) == {1, 2}
     assert out.groupby(s.TRACK_ID)[s.TEAM].nunique().eq(1).all()
+
+
+def test_occluded_torsos_flags_overlapping_people_only() -> None:
+    people = pd.DataFrame(
+        {
+            s.FRAME: [0, 0, 0],
+            # boxes 1 and 2 overlap heavily; box 3 stands alone
+            "x1": [0.0, 20.0, 300.0],
+            "y1": [0.0, 10.0, 0.0],
+            "x2": [100.0, 120.0, 400.0],
+            "y2": [200.0, 210.0, 200.0],
+        }
+    )
+    assert occluded_torsos(people).tolist() == [True, True, False]
+
+
+def test_occluded_rows_do_not_vote_or_split() -> None:
+    # Track 1 is red, but for 40 frames it overlaps blue track 2 and samples blue.
+    rows = _player_rows(1, RED, 100) + _player_rows(1, BLUE, 40, start=100)
+    rows += _player_rows(1, RED, 100, start=140) + _player_rows(2, BLUE, 240)
+    players = pd.DataFrame(rows)
+    occluded = (players[s.TRACK_ID] == 1) & players[s.FRAME].between(100, 139)
+
+    out = assign_teams(players, next_track_id=3, occluded=occluded)
+    assert set(out[s.TRACK_ID]) == {1, 2}
+    team = out.groupby(s.TRACK_ID)[s.TEAM].first()
+    assert team[1] != team[2]

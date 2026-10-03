@@ -26,8 +26,10 @@ def _stable_runs(values: NDArray[np.int64], n_values: int, window: int, min_run:
         return [0]
     one_hot = np.zeros((len(values), n_values))
     one_hot[known, values[known]] = 1
-    votes = pd.DataFrame(one_hot).rolling(window, center=True, min_periods=1).sum()
-    smoothed = votes.to_numpy().argmax(axis=1)
+    votes = pd.DataFrame(one_hot).rolling(window, center=True, min_periods=1).sum().to_numpy()
+    # A window with no known values carries the nearest smoothed value on, not value 0.
+    majority = pd.Series(votes.argmax(axis=1)).where(votes.sum(axis=1) > 0)
+    smoothed = majority.ffill().bfill().to_numpy(dtype=np.int64, copy=True)
 
     while True:
         starts = [0, *np.flatnonzero(np.diff(smoothed)) + 1]
