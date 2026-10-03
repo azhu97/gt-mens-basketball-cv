@@ -28,6 +28,12 @@ def test_cli_help() -> None:
     assert "calibrate" in result.stdout
 
 
+def test_separate_court_without_calibration_fails_fast(synthetic_video: Path) -> None:
+    result = CliRunner().invoke(app, ["track", str(synthetic_video), "--separate-court"])
+    assert result.exit_code != 0
+    assert "--calibration" in result.output
+
+
 def test_referees_get_no_team() -> None:
     rows = [
         {

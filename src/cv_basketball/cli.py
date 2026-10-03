@@ -91,6 +91,12 @@ def track(
     ] = False,
 ) -> None:
     """Detect and track players and ball, assign teams, and export results."""
+    if separate_court and calibration is None:
+        raise typer.BadParameter(
+            "the court view needs court positions, which need --calibration "
+            f"(make one with `cvb calibrate {video} --court ncaa --frame N`)",
+            param_hint="--separate-court",
+        )
     from cv_basketball.device import select_device
     from cv_basketball.pipeline import PipelineConfig, run
     from cv_basketball.tracking import DEFAULT_TRACKER
