@@ -43,3 +43,5 @@ uv run cvb track game.mp4 --model runs/train/basketball/weights/best.pt
 - The pretrained COCO `sports ball` class has many false positives on broadcast footage (e.g. pom-poms in the crowd). The highest-confidence detection per frame is kept, and short gaps are filled by interpolation.
 - With COCO weights, referees are clustered into one of the two teams. Fine-tuned weights with a referee class fix this.
 - Calibration assumes a static camera.
+- Team colours still flicker briefly in places, usually just after a collision or when a new track ID starts. A new ID re-decides its team from a few noisy frames before settling. The fix is to carry a team across ID changes and to require a minimum number of clean frames before a track votes; this is deferred for now.
+- Coaches and bench staff standing on the court surface along the sideline are kept and forced into a team. The off-court filter only removes people whose feet are off the floor, such as fans in the stands.
