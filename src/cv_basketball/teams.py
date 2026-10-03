@@ -15,9 +15,10 @@ from cv_basketball.swaps import repair_swaps
 
 UNKNOWN_TEAM = -1
 _MAX_FIT_SAMPLES = 5000
-# Upper-torso band as fractions of the box: central 50% width, 15-50% height. Avoids
-# background, head and shorts.
-_TORSO = np.array([0.25, 0.15, 0.75, 0.50])
+# Torso band as fractions of the box: central 50% width, 20-60% height. Avoids
+# background and the head. 20-60% beat 15-50% on clips 1-3 (visible team flips 11 -> 8,
+# 5 v 5 frames 730 -> 773), probably because 15-20% often still holds the head.
+_TORSO = np.array([0.25, 0.20, 0.75, 0.60])
 
 
 @dataclass(frozen=True)
