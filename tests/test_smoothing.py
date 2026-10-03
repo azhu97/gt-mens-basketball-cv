@@ -70,3 +70,34 @@ def test_sixth_player_with_least_support_moves_to_the_short_team() -> None:
     out = grey_out_sixth_players(players)
     assert (out[players[s.TRACK_ID] == 9] == 1).all()
     assert (out[players[s.TRACK_ID] != 9] == players.loc[players[s.TRACK_ID] != 9, s.TEAM]).all()
+
+
+def _court(roster: list[tuple[int, int, int]], frames: int = 20) -> pd.DataFrame:
+    """Rows of (track_id, team, vote) for every frame."""
+    return pd.DataFrame(
+        [
+            {s.FRAME: f, s.TRACK_ID: tid, s.TEAM: team, s.TEAM_VOTE: vote}
+            for f in range(frames)
+            for tid, team, vote in roster
+        ]
+    )
+
+
+def test_grey_player_joins_the_team_that_is_one_short() -> None:
+    from cv_basketball.smoothing import fill_to_five
+
+    # five on team 0, four on team 1, and a hidden player with no clean votes
+    roster = [(i, 0, 0) for i in range(5)] + [(i, 1, 1) for i in range(5, 9)] + [(9, -1, -1)]
+    players = _court(roster)
+    assert (fill_to_five(players)[players[s.TRACK_ID] == 9] == 1).all()
+
+
+def test_grey_player_stays_grey_when_both_teams_are_full_or_it_looks_like_a_ref() -> None:
+    from cv_basketball.smoothing import fill_to_five
+
+    full = [(i, 0, 0) for i in range(5)] + [(i, 1, 1) for i in range(5, 10)]
+    eleventh = _court([*full, (10, -1, -1)])
+    assert (fill_to_five(eleventh)[eleventh[s.TRACK_ID] == 10] == -1).all()
+    # one short, but its votes say referee (2)
+    ref = _court([*full[:9], (10, -1, 2)])
+    assert (fill_to_five(ref)[ref[s.TRACK_ID] == 10] == -1).all()

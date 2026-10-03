@@ -35,7 +35,12 @@ from cv_basketball.homography import (
 )
 from cv_basketball.labels import vote_person_labels
 from cv_basketball.paths import fill_gaps, foot_y, off_court_people, smooth_paths, stitch_into_gaps
-from cv_basketball.smoothing import drop_blips, grey_out_sixth_players, smooth_teams
+from cv_basketball.smoothing import (
+    drop_blips,
+    fill_to_five,
+    grey_out_sixth_players,
+    smooth_teams,
+)
 from cv_basketball.swaps import max_iou
 from cv_basketball.teams import (
     UNKNOWN_TEAM,
@@ -66,6 +71,7 @@ class PipelineConfig:
     path_median: int = 5
     path_window: int = 15
     max_fill_gap: int = 30  # fill gaps inside a person's track up to this many frames
+    fill_to_five: bool = True  # grey player -> the team one short of 5 (smoothing.py)
     grey_out_extras: bool = True  # sixth player on a team -> unknown in that frame
     restore_feet: bool = True  # feet under boxes cut off at the knees (paths.foot_y)
     ground_ball: bool = True  # ball at its holder's feet / between holders (ball2d.py)
@@ -153,6 +159,8 @@ def postprocess(
     players = players[drop_blips(players, tp.min_unknown_rows)]
     players = stitch_into_gaps(players)
     players = fill_gaps(players, cfg.max_fill_gap)
+    if cfg.fill_to_five:
+        players[s.TEAM] = fill_to_five(players)
     if cfg.grey_out_extras:
         players[s.TEAM] = grey_out_sixth_players(players)
 

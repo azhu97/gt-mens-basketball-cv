@@ -128,3 +128,46 @@ def grey_out_sixth_players(
             fits = int(other_size.max()) + extra <= max_per_team
             team[span & (team == tm)] = other if fits else UNKNOWN_TEAM
     return team
+
+
+def fill_to_five(
+    players: pd.DataFrame,
+    max_per_team: int = 5,
+    min_full_share: float = 0.5,
+    min_room_share: float = 0.8,
+) -> "pd.Series[int]":
+    """Team per row, with grey players put on the team that is short of five.
+
+    A player whose jersey is hidden most of the time (standing behind someone) gets too
+    few clean votes for a team and shows grey. But the court has five of each, so a
+    grey track joins a team if both hold:
+
+    - joining never makes that team more than ``max_per_team`` in any of its frames,
+      and the team never shows more players than the other one there;
+    - in at least ``min_full_share`` of its frames, the other team already shows
+      ``max_per_team`` (so the player can't be theirs).
+
+    Tracks dressed like a referee (more referee-like votes than team votes) stay grey.
+    Longest tracks are placed first, and counts are updated after each.
+    """
+    team = players[s.TEAM].copy()
+    votes = players[s.TEAM_VOTE]
+    grey = players[(team == UNKNOWN_TEAM) & (players[s.TRACK_ID] >= 0)]
+    order = grey.groupby(s.TRACK_ID).size().sort_values(ascending=False).index
+    for tid in order:
+        rows = players[s.TRACK_ID] == tid
+        v = votes[rows]
+        if int((v == 2).sum()) > int(v.isin([0, 1]).sum()):
+            continue
+        frames = players.loc[rows, s.FRAME].unique()
+        others = players[players[s.FRAME].isin(frames) & ~rows]
+        counts = pd.crosstab(others[s.FRAME], team[others.index]).reindex(
+            index=frames, columns=[0, 1], fill_value=0
+        )
+        for short, full in ((0, 1), (1, 0)):
+            room = ((counts[short] < max_per_team) & (counts[short] <= counts[full])).mean()
+            room = room >= min_room_share
+            if room and (counts[full] >= max_per_team).mean() >= min_full_share:
+                team[rows & (team == UNKNOWN_TEAM)] = short
+                break
+    return team
