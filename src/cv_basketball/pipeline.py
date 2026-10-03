@@ -33,7 +33,7 @@ from cv_basketball.homography import (
     reject_bad_keyframes,
 )
 from cv_basketball.labels import vote_person_labels
-from cv_basketball.paths import smooth_paths
+from cv_basketball.paths import fill_gaps, smooth_paths, stitch_into_gaps
 from cv_basketball.smoothing import drop_blips, smooth_teams
 from cv_basketball.swaps import max_iou
 from cv_basketball.teams import (
@@ -64,6 +64,7 @@ class PipelineConfig:
     # court-path smoothing windows in frames (see paths.py); 1 turns a filter off
     path_median: int = 5
     path_window: int = 15
+    max_fill_gap: int = 30  # fill gaps inside a person's track up to this many frames
     ground_ball: bool = True  # ball at its holder's feet / between holders (ball2d.py)
 
 
@@ -143,11 +144,12 @@ def postprocess(
     )
     players[s.TEAM] = smooth_teams(players, tp.max_flip_rows)
     players = players[drop_blips(players, tp.min_unknown_rows)]
-    players[s.INTERPOLATED] = False
+    players = stitch_into_gaps(players)
+    players = fill_gaps(players, cfg.max_fill_gap)
 
     referees[s.TEAM] = UNKNOWN_TEAM
     referees[s.TEAM_VOTE] = UNKNOWN_TEAM
-    referees[s.INTERPOLATED] = False
+    referees = fill_gaps(referees, cfg.max_fill_gap)
 
     balls = interpolate_ball(track_ball(raw[raw[s.LABEL] == s.BALL], people), cfg.ball_max_gap)
     balls[s.TEAM] = UNKNOWN_TEAM
