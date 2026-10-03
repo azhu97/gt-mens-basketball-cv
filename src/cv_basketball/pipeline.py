@@ -2,7 +2,7 @@
 
 Pass 1 streams the video through YOLO (tracker for players, plain detection for the
 ball), recording boxes, jersey colors and distance from the court floor (no frames kept
-in memory). Post-processing (ball cleanup, off-court people dropped, tracks split at
+in memory). Post-processing (ball path through time, off-court people dropped, tracks split at
 player/referee and team changes, per-track votes on both, court projection) then works
 purely on the tracks DataFrame. Pass 2 re-reads the video to render the annotated output.
 """
@@ -15,7 +15,7 @@ import pandas as pd
 
 from cv_basketball import schema as s
 from cv_basketball.annotate import render_video
-from cv_basketball.ball import interpolate_ball, select_ball
+from cv_basketball.ball import interpolate_ball, track_ball
 from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
 from cv_basketball.homography import Calibration, add_court_coords
 from cv_basketball.labels import vote_person_labels
@@ -91,7 +91,7 @@ def postprocess(
     referees[s.TEAM] = UNKNOWN_TEAM
     referees[s.INTERPOLATED] = False
 
-    balls = interpolate_ball(select_ball(raw[raw[s.LABEL] == s.BALL]), cfg.ball_max_gap)
+    balls = interpolate_ball(track_ball(raw[raw[s.LABEL] == s.BALL], people), cfg.ball_max_gap)
     balls[s.TEAM] = UNKNOWN_TEAM
 
     tracks = (

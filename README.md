@@ -40,7 +40,7 @@ uv run cvb track game.mp4 --model runs/train/basketball/weights/best.pt
 
 ## Known limitations
 
-- The pretrained COCO `sports ball` class has many false positives on broadcast footage (e.g. pom-poms in the crowd). The highest-confidence detection per frame is kept, and short gaps are filled by interpolation.
+- Both COCO and fine-tuned weights detect ball-like objects as the ball, sometimes with high confidence: the mascot's head, the rim, orange shoes, pom-poms. The ball is picked as a smooth path through time that favours candidates near a player, and short reachable gaps are interpolated. This is about 86% right on hand-labelled frames, but a confident decoy far from any player can still win while the ball is in the air. Fine-tuning with these decoys as negatives would fix it at the source.
 - With COCO weights, referees are clustered into one of the two teams. Fine-tuned weights with a referee class fix this.
 - Calibration assumes a static camera.
 - Team colours still flicker briefly in places, usually just after a collision or when a new track ID starts. A new ID re-decides its team from a few noisy frames before settling. The fix is to carry a team across ID changes and to require a minimum number of clean frames before a track votes; this is deferred for now.
