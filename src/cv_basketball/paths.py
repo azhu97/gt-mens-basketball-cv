@@ -18,6 +18,7 @@ from scipy.ndimage import median_filter
 from scipy.signal import savgol_filter
 
 from cv_basketball import schema as s
+from cv_basketball.court import CourtSpec
 from cv_basketball.swaps import pairwise_iou
 
 
@@ -162,3 +163,20 @@ def stitch_into_gaps(
                 if team is not None:
                     out.loc[rows, s.TEAM] = team[a]
     return out[~drop]
+
+
+def off_court_people(
+    tracks: pd.DataFrame, spec: CourtSpec, margin: float = 0.5, max_share: float = 0.5
+) -> "pd.Series[bool]":
+    """Rows of teamless player tracks that are mostly off the court: bench, coaches, staff.
+
+    A track with no team is not in a team jersey, and if more than ``max_share`` of its
+    positions are over ``margin`` metres outside the lines, it isn't playing. Tracks
+    with a team stay (an inbounding player, or the court mapping drifting).
+    """
+    rows = (tracks[s.LABEL] == s.PLAYER) & (tracks[s.TEAM] == -1) & tracks[s.COURT[0]].notna()
+    x, y = tracks[s.COURT[0]], tracks[s.COURT[1]]
+    outside = (x < -margin) | (x > spec.length + margin) | (y < -margin) | (y > spec.width + margin)
+    share = outside[rows].astype(float).groupby(tracks.loc[rows, s.TRACK_ID]).mean()
+    off_tracks = share.index[share.to_numpy() > max_share]
+    return rows & tracks[s.TRACK_ID].isin(off_tracks)

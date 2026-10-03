@@ -97,3 +97,27 @@ def test_new_id_covering_a_gap_is_stitched_back() -> None:
     assert set(out[s.TRACK_ID]) == {1}
     assert out[s.FRAME].is_unique  # the duplicate boxes at frames 8-9 are gone
     assert sorted(out[s.FRAME]) == list(range(30))
+
+
+def test_teamless_track_mostly_off_court_is_flagged() -> None:
+    from cv_basketball.court import NBA
+    from cv_basketball.paths import off_court_people
+
+    rows = []
+    for f in range(10):
+        # 1: bench player beside the court; 2: a player with a team stepping out to
+        # inbound; 3: a teamless player on the court
+        for tid, team, x in ((1, -1, NBA.length + 3), (2, 0, NBA.length + 3), (3, -1, 10.0)):
+            rows.append(
+                {
+                    s.FRAME: f,
+                    s.TRACK_ID: tid,
+                    s.LABEL: s.PLAYER,
+                    s.TEAM: team,
+                    s.COURT[0]: x,
+                    s.COURT[1]: 5.0,
+                }
+            )
+    tracks = pd.DataFrame(rows)
+    flagged = off_court_people(tracks, NBA)
+    assert set(tracks.loc[flagged, s.TRACK_ID]) == {1}

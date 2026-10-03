@@ -24,6 +24,7 @@ from cv_basketball.annotate import render_court_video, render_video
 from cv_basketball.ball import interpolate_ball, track_ball
 from cv_basketball.ball2d import ground_ball
 from cv_basketball.camera import court_homographies, frame_motion
+from cv_basketball.court import CourtSpec
 from cv_basketball.floor import floor_distance, floor_hull, on_court_tracks
 from cv_basketball.homography import (
     Calibration,
@@ -33,7 +34,7 @@ from cv_basketball.homography import (
     reject_bad_keyframes,
 )
 from cv_basketball.labels import vote_person_labels
-from cv_basketball.paths import fill_gaps, smooth_paths, stitch_into_gaps
+from cv_basketball.paths import fill_gaps, off_court_people, smooth_paths, stitch_into_gaps
 from cv_basketball.smoothing import drop_blips, smooth_teams
 from cv_basketball.swaps import max_iou
 from cv_basketball.teams import (
@@ -118,12 +119,16 @@ def image_to_court(
 
 
 def postprocess(
-    raw: pd.DataFrame, cfg: PipelineConfig, homographies: NDArray[np.float64] | None
+    raw: pd.DataFrame,
+    cfg: PipelineConfig,
+    homographies: NDArray[np.float64] | None,
+    court: CourtSpec | None = None,
 ) -> pd.DataFrame:
     """Clean up pass-1 rows into the tracks table.
 
     ``homographies`` holds one image->court homography per frame (see ``image_to_court``);
-    without it there are no court coordinates.
+    without it there are no court coordinates. With ``court`` too, teamless tracks that
+    are mostly off the court (bench, coaches) are dropped.
     """
     people = raw[raw[s.LABEL].isin([s.PLAYER, s.REFEREE])]
     people = people[on_court_tracks(people)].copy()
@@ -162,6 +167,8 @@ def postprocess(
     )
     if homographies is not None:
         tracks = add_court_coords(tracks, dict(enumerate(homographies)))
+        if court is not None:
+            tracks = tracks[~off_court_people(tracks, court)].reset_index(drop=True)
         tracks = smooth_paths(tracks, cfg.path_median, cfg.path_window)
         tracks = ground_ball(tracks) if cfg.ground_ball else tracks
     return tracks
@@ -187,7 +194,7 @@ def run(video: Path, out_dir: Path, cfg: PipelineConfig) -> pd.DataFrame:
                 stacklevel=1,
             )
     homographies = image_to_court(keyframes, motions) if keyframes else None
-    tracks = postprocess(raw, cfg, homographies)
+    tracks = postprocess(raw, cfg, homographies, keyframes[0].spec if keyframes else None)
     if keyframes:
         for frame in drifting_frames(tracks, keyframes[0].spec):
             warnings.warn(
